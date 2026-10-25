@@ -9,11 +9,17 @@ from __future__ import annotations
 import datetime
 
 from flask import jsonify, request
-from sqlalchemy import select
+from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from db.models import NOTE_STATUSES, NOTE_TYPES, GrammarRule, Note
 from db.session import session_scope
+
+AUTHORING_SORTS = {
+    "updated_desc": Note.updated_at.desc(),
+    "created_desc": Note.created_at.desc(),
+    "text_asc": Note.text.asc(),
+}
 
 REQUIRED_CREATE_FIELDS = ("type", "source_lang", "text")
 
@@ -222,6 +228,51 @@ def register_notes_routes(app):
             notes = db.scalars(stmt).all()
             return jsonify([_serialize_public(n) for n in notes]), 200
 
+    @app.route("/api/notes/authoring", methods=["GET"])
+    def list_notes_authoring():
+        """D-S1 — the operator-only authoring list: every status, filterable/
+        sortable/searchable. A deliberately separate route and query path
+        from `list_notes` above (D44's public contract) — never touches that
+        function or its `status == "ready"` filter."""
+        status = request.args.get("status")
+        if status is not None and status not in NOTE_STATUSES:
+            return jsonify({"error": f"status must be one of {NOTE_STATUSES}"}), 400
+
+        type_ = request.args.get("type")
+        if type_ is not None and type_ not in NOTE_TYPES:
+            return jsonify({"error": f"type must be one of {NOTE_TYPES}"}), 400
+
+        sort = request.args.get("sort", "updated_desc")
+        if sort not in AUTHORING_SORTS:
+            return jsonify({"error": f"sort must be one of {sorted(AUTHORING_SORTS)}"}), 400
+
+        stmt = select(Note).where(Note.deleted_at.is_(None))
+        if status:
+            stmt = stmt.where(Note.status == status)
+        if type_:
+            stmt = stmt.where(Note.type == type_)
+        pos = request.args.get("pos")
+        if pos:
+            stmt = stmt.where(Note.pos == pos)
+        grammar_rule_id = request.args.get("grammar_rule_id")
+        if grammar_rule_id:
+            stmt = stmt.where(Note.grammar_rule_id == grammar_rule_id)
+        q = request.args.get("q")
+        if q:
+            needle = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    Note.text.ilike(needle),
+                    Note.lemma.ilike(needle),
+                    cast(Note.translations, Text).ilike(needle),
+                )
+            )
+        stmt = stmt.order_by(AUTHORING_SORTS[sort])
+
+        with session_scope() as db:
+            notes = db.scalars(stmt).all()
+            return jsonify([_serialize_authoring(n) for n in notes]), 200
+
     @app.route("/api/grammar_rules", methods=["POST"])
     def create_grammar_rule():
         # Minimal support so the authoring UI can create a grammar_rule row
@@ -234,13 +285,93 @@ def register_notes_routes(app):
         with session_scope() as db:
             db.add(rule)
             db.flush()
-            return jsonify({"id": rule.id, "title": rule.title, "html": rule.html}), 201
+            return jsonify(_serialize_grammar_rule(rule, 0)), 201
 
     @app.route("/api/grammar_rules", methods=["GET"])
     def list_grammar_rules():
+        sort = request.args.get("sort", "usage_desc")
+        if sort not in ("usage_desc", "title_asc"):
+            return jsonify({"error": "sort must be one of ['usage_desc', 'title_asc']"}), 400
+        q = request.args.get("q")
+
         with session_scope() as db:
-            rules = db.scalars(select(GrammarRule)).all()
-            return jsonify([{"id": r.id, "title": r.title, "html": r.html} for r in rules]), 200
+            stmt = select(GrammarRule)
+            if q:
+                stmt = stmt.where(GrammarRule.title.ilike(f"%{q}%"))
+            rules = db.scalars(stmt).all()
+            counts = _grammar_rule_usage_counts(db, [r.id for r in rules])
+            rows = [_serialize_grammar_rule(r, counts.get(r.id, 0)) for r in rules]
+            if sort == "usage_desc":
+                rows.sort(key=lambda r: r["usage_count"], reverse=True)
+            else:
+                rows.sort(key=lambda r: r["title"].lower())
+            return jsonify(rows), 200
+
+    @app.route("/api/grammar_rules/<int:rule_id>", methods=["GET"])
+    def get_grammar_rule(rule_id):
+        with session_scope() as db:
+            rule = db.get(GrammarRule, rule_id)
+            if rule is None:
+                return jsonify({"error": "not found"}), 404
+            counts = _grammar_rule_usage_counts(db, [rule_id])
+            return jsonify(_serialize_grammar_rule(rule, counts.get(rule_id, 0))), 200
+
+    @app.route("/api/grammar_rules/<int:rule_id>", methods=["PATCH"])
+    def patch_grammar_rule(rule_id):
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "JSON body required"}), 400
+
+        with session_scope() as db:
+            rule = db.get(GrammarRule, rule_id)
+            if rule is None:
+                return jsonify({"error": "not found"}), 404
+
+            for field in ("title", "html"):
+                if field in body:
+                    setattr(rule, field, body[field])
+
+            db.flush()
+            counts = _grammar_rule_usage_counts(db, [rule_id])
+            return jsonify(_serialize_grammar_rule(rule, counts.get(rule_id, 0))), 200
+
+    @app.route("/api/grammar_rules/<int:rule_id>", methods=["DELETE"])
+    def delete_grammar_rule(rule_id):
+        # D-S3/D-S4's race note: check-then-delete inside the same
+        # transaction/session, not two separate round-trips, so a note
+        # created with this rule's id between the check and the delete
+        # can't slip through.
+        with session_scope() as db:
+            rule = db.get(GrammarRule, rule_id)
+            if rule is None:
+                return jsonify({"error": "not found"}), 404
+
+            count = db.scalar(
+                select(func.count()).select_from(Note).where(Note.grammar_rule_id == rule_id)
+            )
+            if count:
+                return (
+                    jsonify({"error": f"grammar rule is referenced by {count} note(s)", "reference_count": count}),
+                    409,
+                )
+
+            db.delete(rule)
+            return "", 204
+
+
+def _serialize_grammar_rule(rule: GrammarRule, usage_count: int) -> dict:
+    return {"id": rule.id, "title": rule.title, "html": rule.html, "usage_count": usage_count}
+
+
+def _grammar_rule_usage_counts(db, rule_ids: list[int]) -> dict[int, int]:
+    if not rule_ids:
+        return {}
+    rows = db.execute(
+        select(Note.grammar_rule_id, func.count())
+        .where(Note.grammar_rule_id.in_(rule_ids), Note.deleted_at.is_(None))
+        .group_by(Note.grammar_rule_id)
+    ).all()
+    return {rule_id: count for rule_id, count in rows}
 
 
 def _integrity_error_message(exc: IntegrityError) -> str:

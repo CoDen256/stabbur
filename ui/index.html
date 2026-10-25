@@ -10,7 +10,7 @@
 
 <header>
   <h1>stabbur</h1>
-  <p>Hand-author notes and attach audio. Not the triage UI — no inbox, no suggestions.</p>
+  <p class="muted">Hand-author notes and grammar rules, attach audio. Not the triage UI — no inbox, no suggestions.</p>
   <nav>
     <!-- D46: shared header/nav, one domain by path — placeholders until
          tun's reverse proxy wires the real sibling paths. -->
@@ -19,131 +19,280 @@
     <a href="/phonexa/">phonexa</a>
     <a href="/ui">stabbur (this page)</a>
   </nav>
-  <label for="tokenInput">Bearer token</label>
-  <input id="tokenInput" type="password" placeholder="shared STABBUR_AUTH_TOKEN" autocomplete="off">
+  <div class="tokenRow">
+    <label for="tokenInput">Bearer token</label>
+    <input id="tokenInput" type="password" placeholder="shared STABBUR_AUTH_TOKEN" autocomplete="off">
+  </div>
 </header>
 
-<div class="page">
+<div class="shell">
+  <div class="rail">
+    <div class="rail-group-label">Content</div>
+    <a href="#/notes" data-route="notes">Notes</a>
+    <a href="#/grammar" data-route="grammar">Grammar rules</a>
+    <div class="rail-group-label">Create</div>
+    <a href="#/new-note" data-route="new-note">+ New note</a>
+    <a href="#/new-grammar" data-route="new-grammar">+ New grammar rule</a>
+  </div>
 
-  <section>
-    <h2>Create a note</h2>
-    <form id="createForm">
-      <label for="c_type">Type</label>
-      <select id="c_type">
-        <option value="word">word</option>
-        <option value="expression">expression</option>
-        <option value="listening">listening</option>
-        <option value="pronunciation">pronunciation</option>
-        <option value="grammar">grammar</option>
-      </select>
+  <div class="content">
 
-      <label for="c_source_lang">Source language</label>
-      <input id="c_source_lang" type="text" value="no">
+    <!-- NOTES LIST -->
+    <section class="page" id="page-notes">
+      <div class="page-head">
+        <div>
+          <h2>Notes</h2>
+          <div class="page-sub" id="notesSummary"></div>
+        </div>
+        <a href="#/new-note" class="btn btn-primary">+ New note</a>
+      </div>
+      <div class="toolbar">
+        <input class="search-input" type="search" id="notesSearch" placeholder="Search text, translation, lemma…">
+        <select id="notesStatusFilter">
+          <option value="">Status: all</option>
+          <option value="ready">ready</option>
+          <option value="draft">draft</option>
+        </select>
+        <select id="notesTypeFilter">
+          <option value="">Type: all</option>
+          <option value="word">word</option>
+          <option value="expression">expression</option>
+          <option value="listening">listening</option>
+          <option value="pronunciation">pronunciation</option>
+          <option value="grammar">grammar</option>
+        </select>
+        <div class="spacer"></div>
+        <select id="notesSort">
+          <option value="updated_desc">Sort: updated, newest</option>
+          <option value="created_desc">Sort: created, newest</option>
+          <option value="text_asc">Sort: text, A–Z</option>
+        </select>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Text</th><th>Type</th><th>PoS</th><th>Status</th><th>Audio</th><th>Translation</th><th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="notesTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
-      <label for="c_text">Text</label>
-      <textarea id="c_text" required></textarea>
+    <!-- NOTE DETAIL -->
+    <section class="page" id="page-note-detail">
+      <div class="page-head">
+        <div>
+          <h2 id="noteDetailTitle"></h2>
+          <div class="page-sub" id="noteDetailSub"></div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <a href="#/notes" class="btn btn-ghost">◂ Back to notes</a>
+          <button id="noteDeleteBtn" class="btn-danger">Delete</button>
+          <button id="noteSaveBtn" class="btn-primary">Save</button>
+        </div>
+      </div>
 
-      <label for="c_translations">Translations (JSON array of {lang, text})</label>
-      <textarea id="c_translations">[]</textarea>
+      <div class="detail-grid">
+        <div>
+          <div class="panel panel-pad">
+            <form id="noteEditForm">
+              <div class="field-row">
+                <div class="field"><label for="e_text">Text (source language)</label><textarea id="e_text" required></textarea></div>
+                <div class="field"><label for="e_lemma">Lemma</label><input id="e_lemma" type="text"></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="e_type">Type</label>
+                  <select id="e_type">
+                    <option value="word">word</option>
+                    <option value="expression">expression</option>
+                    <option value="listening">listening</option>
+                    <option value="pronunciation">pronunciation</option>
+                    <option value="grammar">grammar</option>
+                  </select>
+                </div>
+                <div class="field"><label for="e_pos">Part of speech</label><input id="e_pos" type="text" placeholder="substantiv, verb, ..."></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="e_source_lang">Source language</label><input id="e_source_lang" type="text"></div>
+                <div class="field"><label for="e_status">Status</label>
+                  <select id="e_status">
+                    <option value="draft">draft</option>
+                    <option value="ready">ready</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field"><label for="e_transcription">Transcription</label><input id="e_transcription" type="text"></div>
+              <div class="field"><label for="e_translations">Translations (JSON array of {lang, text})</label><textarea id="e_translations"></textarea></div>
+              <div class="field"><label for="e_inflections">Inflections (flat JSON object)</label><textarea id="e_inflections"></textarea></div>
+              <div class="field"><label for="e_context_text">Context text</label><textarea id="e_context_text"></textarea></div>
+              <div class="field"><label for="e_grammar_rule_id">Grammar rule id (required for type=grammar)</label><input id="e_grammar_rule_id" type="number"></div>
+              <p id="e_no_audio_warning" class="warning" style="display:none">
+                ⚠ No audio attached — marking this note ready now means it will be
+                invisible to Mjølnir forever, with no error anywhere. Attach audio
+                first, or confirm this is intentional before saving.
+              </p>
+            </form>
+            <details class="json-toggle" id="noteJsonToggle">
+              <summary>Raw record (JSON)</summary>
+              <pre class="json" id="noteJsonView"></pre>
+            </details>
+            <p id="noteSaveResult" class="inline-note"></p>
+          </div>
+        </div>
 
-      <label for="c_transcription">Transcription</label>
-      <input id="c_transcription" type="text">
+        <div>
+          <div class="panel panel-pad">
+            <h3 style="font-size:13px; margin-bottom:12px;">Audio</h3>
+            <div id="noteAudioNone" class="inline-note">No audio attached.</div>
+            <div id="noteAudioPlayer" style="display:none">
+              <div class="audio-player">
+                <button class="play-btn" id="audioPlayBtn" type="button">▶</button>
+                <div class="waveform" id="audioWaveform">
+                  <canvas id="audioWaveformCanvas" width="200" height="32" style="width:100%; height:100%; display:block;"></canvas>
+                  <div class="trim-shade" id="trimShadeLeft" style="left:0; width:0%;"></div>
+                  <div class="trim-shade" id="trimShadeRight" style="right:0; width:0%;"></div>
+                  <div class="trim-handle" id="trimHandleStart" style="left:0%;"></div>
+                  <div class="trim-handle" id="trimHandleEnd" style="left:100%;"></div>
+                </div>
+                <span class="audio-time" id="audioTimeLabel"></span>
+              </div>
+              <audio id="audioElement" style="display:none" preload="metadata"></audio>
+              <div style="display:flex; gap:8px; margin-top:10px;">
+                <button class="btn-ghost" id="previewTrimBtn" type="button">▶ Preview trim</button>
+              </div>
+              <div class="inline-note" id="audioClipNote"></div>
+            </div>
+            <div class="field" style="margin-top:14px;">
+              <label for="e_audio_file">Replace audio</label>
+              <input id="e_audio_file" type="file" accept="audio/*">
+              <button id="uploadAudioBtn" type="button" style="margin-top:8px;">↻ Upload &amp; replace</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-      <label for="c_pos">Part of speech</label>
-      <input id="c_pos" type="text" placeholder="substantiv, verb, ...">
+    <!-- GRAMMAR LIST -->
+    <section class="page" id="page-grammar">
+      <div class="page-head">
+        <div>
+          <h2>Grammar rules</h2>
+          <div class="page-sub" id="grammarSummary"></div>
+        </div>
+        <a href="#/new-grammar" class="btn btn-primary">+ New grammar rule</a>
+      </div>
+      <div class="toolbar">
+        <input class="search-input" type="search" id="grammarSearch" placeholder="Search title…">
+        <select id="grammarSort">
+          <option value="usage_desc">Sort: most used</option>
+          <option value="title_asc">Sort: title, A–Z</option>
+        </select>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Title</th><th>Used by</th></tr></thead>
+            <tbody id="grammarTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
-      <label for="c_lemma">Lemma</label>
-      <input id="c_lemma" type="text">
+    <!-- GRAMMAR DETAIL -->
+    <section class="page" id="page-grammar-detail">
+      <div class="page-head">
+        <div>
+          <h2 id="grammarDetailTitle"></h2>
+          <div class="page-sub">Grammar rule</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <a href="#/grammar" class="btn btn-ghost">◂ Back to grammar rules</a>
+          <button id="grammarDeleteBtn" class="btn-danger">Delete</button>
+          <button id="grammarSaveBtn" class="btn-primary">Save</button>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="panel panel-pad">
+          <div class="field"><label for="gr_title">Title</label><input id="gr_title" type="text"></div>
+          <div class="field"><label for="gr_html">Explanation (HTML)</label><textarea id="gr_html" style="min-height:160px;"></textarea></div>
+          <p id="grammarSaveResult" class="inline-note"></p>
+        </div>
+        <div class="panel panel-pad">
+          <h3 id="grammarUsageHeading" style="font-size:13px; margin-bottom:10px;"></h3>
+          <div class="usage-list" id="grammarUsageList"></div>
+          <p id="grammarDeleteBlocked" class="inline-note"></p>
+        </div>
+      </div>
+    </section>
 
-      <label for="c_inflections">Inflections (flat JSON object)</label>
-      <textarea id="c_inflections">{}</textarea>
+    <!-- NEW NOTE -->
+    <section class="page" id="page-new-note">
+      <div class="page-head"><div><h2>New note</h2><div class="page-sub">Starts as draft — mark ready once reviewed.</div></div></div>
+      <div class="panel panel-pad" style="max-width:640px;">
+        <form id="createForm">
+          <div class="field"><label for="c_type">Type</label>
+            <select id="c_type">
+              <option value="word">word</option>
+              <option value="expression">expression</option>
+              <option value="listening">listening</option>
+              <option value="pronunciation">pronunciation</option>
+              <option value="grammar">grammar</option>
+            </select>
+          </div>
+          <div class="field" id="c_pos_field" style="display:none">
+            <label for="c_pos">Part of speech</label>
+            <select id="c_pos">
+              <option value="">— none —</option>
+              <option value="substantiv">substantiv</option>
+              <option value="adjektiv">adjektiv</option>
+              <option value="verb">verb</option>
+              <option value="adverb">adverb</option>
+              <option value="preposisjon">preposisjon</option>
+              <option value="konjunksjon">konjunksjon / subjunksjon</option>
+            </select>
+            <div class="inline-note">Picking a PoS fills in the right inflection fields below — nothing to remember by hand.</div>
+          </div>
+          <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
+          <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>
+          <div class="field"><label for="c_lemma">Lemma</label><input id="c_lemma" type="text"></div>
+          <div class="field"><label for="c_transcription">Transcription</label><input id="c_transcription" type="text"></div>
+          <div class="field"><label for="c_translations">Translations (JSON array of {lang, text})</label><textarea id="c_translations">[]</textarea></div>
+          <div class="field" id="c_inflections_fields"></div>
+          <div class="field"><label for="c_context_text">Context text</label><textarea id="c_context_text"></textarea></div>
+          <div class="field" id="c_grammar_rule_field" style="display:none">
+            <label for="c_grammar_rule_id">Grammar rule id (required for type=grammar)</label>
+            <input id="c_grammar_rule_id" type="number">
+          </div>
+          <div class="field"><label for="c_audio_file">Audio (optional — can also attach later)</label>
+            <div class="dropzone"><input id="c_audio_file" type="file" accept="audio/*"></div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:18px;">
+            <button type="submit" class="btn-ghost" id="createDraftBtn">Save as draft</button>
+            <button type="button" class="btn-primary" id="createReadyBtn">Save &amp; mark ready</button>
+          </div>
+        </form>
+        <pre id="createResult" class="inline-note"></pre>
+      </div>
+    </section>
 
-      <label for="c_context_text">Context text</label>
-      <textarea id="c_context_text"></textarea>
+    <!-- NEW GRAMMAR -->
+    <section class="page" id="page-new-grammar">
+      <div class="page-head"><div><h2>New grammar rule</h2></div></div>
+      <div class="panel panel-pad" style="max-width:640px;">
+        <form id="ruleForm">
+          <div class="field"><label for="r_title">Title</label><input id="r_title" type="text" placeholder="e.g. Reflexive verbs with -s" required></div>
+          <div class="field"><label for="r_html">Explanation (HTML)</label><textarea id="r_html" style="min-height:140px;" placeholder="<p>...</p>" required></textarea></div>
+          <div style="display:flex; gap:8px; margin-top:18px;"><button type="submit" class="btn-primary">Create rule</button></div>
+        </form>
+        <pre id="ruleResult" class="inline-note"></pre>
+      </div>
+    </section>
 
-      <label for="c_grammar_rule_id">Grammar rule id (required for type=grammar)</label>
-      <input id="c_grammar_rule_id" type="number">
-
-      <button type="submit">Create (status=draft)</button>
-    </form>
-    <pre id="createResult"></pre>
-  </section>
-
-  <section>
-    <h2>Grammar rules</h2>
-    <p class="muted">A shared explanation multiple <code>type=grammar</code> notes can reference.</p>
-    <form id="ruleForm">
-      <label for="r_title">Title</label>
-      <input id="r_title" type="text">
-      <label for="r_html">HTML</label>
-      <textarea id="r_html"></textarea>
-      <button type="submit">Create grammar rule</button>
-    </form>
-    <pre id="ruleResult"></pre>
-    <button id="listRulesBtn" type="button">List grammar rules</button>
-    <pre id="ruleList"></pre>
-  </section>
-
-  <section>
-    <h2>Load / edit a note</h2>
-    <label for="e_id">Note id</label>
-    <input id="e_id" type="text" placeholder="paste an id from Create">
-    <button id="loadBtn" type="button">Load</button>
-
-    <form id="editForm" style="display:none">
-      <label for="e_type">Type</label>
-      <select id="e_type">
-        <option value="word">word</option>
-        <option value="expression">expression</option>
-        <option value="listening">listening</option>
-        <option value="pronunciation">pronunciation</option>
-        <option value="grammar">grammar</option>
-      </select>
-      <label for="e_source_lang">Source language</label>
-      <input id="e_source_lang" type="text">
-      <label for="e_text">Text</label>
-      <textarea id="e_text"></textarea>
-      <label for="e_translations">Translations (JSON)</label>
-      <textarea id="e_translations"></textarea>
-      <label for="e_transcription">Transcription</label>
-      <input id="e_transcription" type="text">
-      <label for="e_pos">Part of speech</label>
-      <input id="e_pos" type="text">
-      <label for="e_lemma">Lemma</label>
-      <input id="e_lemma" type="text">
-      <label for="e_inflections">Inflections (JSON)</label>
-      <textarea id="e_inflections"></textarea>
-      <label for="e_context_text">Context text</label>
-      <textarea id="e_context_text"></textarea>
-      <label for="e_grammar_rule_id">Grammar rule id</label>
-      <input id="e_grammar_rule_id" type="number">
-      <label for="e_status">Status</label>
-      <select id="e_status">
-        <option value="draft">draft</option>
-        <option value="ready">ready</option>
-      </select>
-      <p id="e_no_audio_warning" class="warning" style="display:none">
-        ⚠ No audio attached — marking this note ready now means it will be
-        invisible to Mjølnir forever, with no error anywhere. Attach audio
-        below first, or confirm this is intentional before saving.
-      </p>
-      <button type="submit">Save</button>
-    </form>
-
-    <div id="audioSection" style="display:none">
-      <h3>Audio</h3>
-      <p class="muted">audio_blob: <span id="e_audio_blob">null</span></p>
-      <audio id="e_audio_preview" controls style="display:none; width:100%"></audio>
-      <input id="e_audio_file" type="file" accept="audio/*">
-      <button id="uploadAudioBtn" type="button">Upload &amp; attach</button>
-      <label for="e_audio_sel_ms">audio_sel_ms (JSON [start, end] in ms)</label>
-      <input id="e_audio_sel_ms" type="text" placeholder="[0, 1200]">
-    </div>
-
-    <button id="deleteBtn" type="button" style="display:none">Delete</button>
-    <pre id="editResult"></pre>
-  </section>
-
+  </div>
 </div>
 
 <script src="/ui/ui.js"></script>
