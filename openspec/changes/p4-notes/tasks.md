@@ -172,3 +172,42 @@ anything native. Normal iteration applies.
       already-`ready` notes, not just new notes) and `deleted_at` (the
       concrete tombstone mechanism). `03-data-model.md`'s schema sketch
       updated to match.
+
+## 6. Findings from an independent architectural review (2026-10-25)
+
+Checked against the actual shipped code, not just the spec. Full reasoning
+in `tun/docs/07-decisions.md` D86–D90 — this is the task-list distillation.
+One correction worth noting up front: **task 5.3's reference to D83 above is
+now stale** — D83 said no endpoint returns `grammar_rule` content; this
+review found `GET /api/grammar_rules` already existed at the time D83 was
+written (commit `c36bc2a`, 2026-10-25 15:07, 24 minutes before D83 was
+recorded in the `mjolnir` repo). D83 is superseded by D89. The grammar-rule
+content gap is real but lives entirely on `mjolnir`'s side now (`builder`
+never calls the endpoint that already exists) — nothing to fix here.
+
+- [ ] 6.1 **Verify the full author flow doesn't let a note silently ship
+      with no audio.** `status=ready` with `audio_blob=null` is allowed by
+      design (D74) — correct, but also the single most likely authoring
+      mistake, since such a note is invisible to Mjølnir forever with no
+      error anywhere. Confirm `ui/index.html`/`ui.js` surfaces a clear
+      warning (not just an absence of the audio player) when marking a note
+      ready with no audio attached, after the audio-attach-ordering fix in
+      `4000740`.
+- [ ] 6.2 **Flip `app.py`'s `FLASK_DEBUG` default from `"1"` to `"0"`.**
+      `docker-compose.yml` already overrides it correctly for the real
+      deployment, so this isn't live today — but the default should be
+      secure-unless-opted-in, not insecure-unless-overridden. Any future run
+      path that doesn't go through this exact compose file (bare `python
+      app.py`, a different orchestrator) would otherwise silently enable
+      Werkzeug's interactive debugger.
+- [ ] 6.3 **Add a size cap to `POST /blobs`.** No limit today — low stakes
+      while only the operator uses the authoring UI (this change's scope),
+      but worth bounding before this surface is ever reachable from
+      anything less trusted (P7's capture ingestion). Reject oversized
+      uploads with a clear 413, don't silently truncate.
+- [ ] 6.4 **Validate the `sha256` path parameter's shape in `GET
+      /blob/<sha256>`** (64 lowercase hex chars) before passing it to
+      `blob_storage.exists()`/`path()`. Not currently exploitable — Flask's
+      route converter blocks embedded `/`, so there's no real traversal
+      vector — but it's unvalidated input reaching a filesystem call, and a
+      cheap regex check costs nothing.
