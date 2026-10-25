@@ -46,7 +46,14 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
     body: JSON.stringify(payload),
   });
   document.getElementById('createResult').textContent = `${status}\n${JSON.stringify(body, null, 2)}`;
-  if (status === 201) document.getElementById('e_id').value = body.id;
+  if (status === 201) {
+    document.getElementById('e_id').value = body.id;
+    // Reveal the edit/audio section immediately — otherwise attaching audio
+    // to a just-created note means manually noticing the id landed in the
+    // "Load / edit a note" field below and clicking Load yourself.
+    fillEditForm(body);
+    document.getElementById('audioSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 });
 
 document.getElementById('ruleForm').addEventListener('submit', async (e) => {
