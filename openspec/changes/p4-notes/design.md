@@ -111,10 +111,22 @@ GET /api/notes?source_lang=no&status=ready&since=<ISO8601>
 ]
 ```
 
-`since` filters on `notes.created_at` (or an `updated_at` if one is added —
-see Open Questions). No pagination in this change; 10 hand-written notes and
-even a few hundred fit in one response without it. Revisit if `builder`'s
-pulls ever get slow.
+`since` filters on `notes.updated_at` (resolved during implementation — see
+Open Questions: `updated_at` was added, and `since` filters on it rather
+than `created_at` precisely so an edit to an already-`ready` note is picked
+up by a later pull, not just newly-created notes). `updated_at` itself is
+not part of the response body above — the shape stays exactly as shown;
+`updated_at` is request-side filtering plumbing only. No pagination in this
+change; 10 hand-written notes and even a few hundred fit in one response
+without it. Revisit if `builder`'s pulls ever get slow.
+
+`status=` is accepted on the request but has no effect beyond the hard,
+always-on `status=ready` filter — there is no way to request drafts through
+this endpoint regardless of what `status=` is set to (`notes-read-api`
+spec). `since` values must be URL-encoded by the caller (a raw `+00:00`
+UTC-offset collides with query-string space-encoding); this endpoint does
+not attempt to recover a malformed value, matching normal HTTP client
+responsibility.
 
 **This exact shape is the contract `p4-builder` (the parallel `mjolnir`
 change) is being built against as a fixture.** Changing a field name or
@@ -134,11 +146,10 @@ integration silently. If a field needs to change, grep the `mjolnir` repo's
   plausibly have been pulled already becomes a tombstone (still queryable by
   id, excluded from `GET /api/notes`'s normal listing).
 - **No "updated_at" in the original schema sketch** — `since=` filtering on
-  `created_at` alone misses edits to already-ready notes, which `builder`'s
-  content-regeneration (D74) explicitly needs to pick up every run regardless
-  of `since`. Resolved by `builder` not relying on `since` to catch edits —
-  see Open Questions below for whether stabbur should add `updated_at`
-  anyway, to make the API itself more honest.
+  `created_at` alone would miss edits to already-ready notes, which
+  `builder`'s content-regeneration (D74) explicitly needs to pick up every
+  run regardless of `since`. Resolved: `updated_at` was added and `since`
+  filters on it instead (see Open Questions below).
 
 ## Migration Plan
 
@@ -154,14 +165,17 @@ New service, no prior state to migrate.
 5. Hand-author the 10 notes P4's finish line calls for, using the authoring
    UI, once all four are done.
 
-## Open Questions
+## Open Questions (resolved during implementation)
 
-- Should `notes` get an `updated_at` column now, even though nothing in this
-  change strictly requires it (the content-regeneration rule in
-  `03-data-model.md` means `builder` re-pulls and re-projects *every* ready
-  note on every run, not just ones changed `since` the last pull)? Cheap to
-  add now, awkward to retrofit later if a future consumer does want to filter
-  on "changed since."
-- Does `DELETE` need a distinct tombstone representation (a `deleted_at`
-  column) or is a draft-only hard-delete, full stop, sufficient until
-  something concrete needs more?
+- **`updated_at`: added.** Cheap now, and it lets `since` catch edits to
+  already-`ready` notes (see D-N4 above) rather than only new notes — closes
+  the Risk noted below without requiring `builder` to special-case anything.
+  Not part of the read API's response body; filtering plumbing only.
+- **Tombstone mechanism: a `deleted_at` column, not a draft-only hard-delete.**
+  `DELETE` on a `draft` note hard-deletes the row (never queryable, never
+  could have been pulled). `DELETE` on a `ready` note sets `deleted_at`
+  instead — the row stays, `GET /api/notes/{id}` still resolves it, but it's
+  excluded from `GET /api/notes`'s listing. This is the literal reading of
+  `status=ready` as the proxy for "could plausibly have been minted" from
+  both `notes-schema`'s and `notes-authoring`'s scenarios — no need to track
+  "has this id ever actually been returned by a query" separately.

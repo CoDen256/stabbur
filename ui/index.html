@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stabbur — notes</title>
+  <link rel="stylesheet" href="/ui/ui.css">
+</head>
+<body>
+
+<header>
+  <h1>stabbur</h1>
+  <p>Hand-author notes and attach audio. Not the triage UI — no inbox, no suggestions.</p>
+  <nav>
+    <!-- D46: shared header/nav, one domain by path — placeholders until
+         tun's reverse proxy wires the real sibling paths. -->
+    <a href="/">tun</a>
+    <a href="/smia/">smia</a>
+    <a href="/phonexa/">phonexa</a>
+    <a href="/ui">stabbur (this page)</a>
+  </nav>
+  <label for="tokenInput">Bearer token</label>
+  <input id="tokenInput" type="password" placeholder="shared STABBUR_AUTH_TOKEN" autocomplete="off">
+</header>
+
+<div class="page">
+
+  <section>
+    <h2>Create a note</h2>
+    <form id="createForm">
+      <label for="c_type">Type</label>
+      <select id="c_type">
+        <option value="word">word</option>
+        <option value="expression">expression</option>
+        <option value="listening">listening</option>
+        <option value="pronunciation">pronunciation</option>
+        <option value="grammar">grammar</option>
+      </select>
+
+      <label for="c_source_lang">Source language</label>
+      <input id="c_source_lang" type="text" value="no">
+
+      <label for="c_text">Text</label>
+      <textarea id="c_text" required></textarea>
+
+      <label for="c_translations">Translations (JSON array of {lang, text})</label>
+      <textarea id="c_translations">[]</textarea>
+
+      <label for="c_transcription">Transcription</label>
+      <input id="c_transcription" type="text">
+
+      <label for="c_pos">Part of speech</label>
+      <input id="c_pos" type="text" placeholder="substantiv, verb, ...">
+
+      <label for="c_lemma">Lemma</label>
+      <input id="c_lemma" type="text">
+
+      <label for="c_inflections">Inflections (flat JSON object)</label>
+      <textarea id="c_inflections">{}</textarea>
+
+      <label for="c_context_text">Context text</label>
+      <textarea id="c_context_text"></textarea>
+
+      <label for="c_grammar_rule_id">Grammar rule id (required for type=grammar)</label>
+      <input id="c_grammar_rule_id" type="number">
+
+      <button type="submit">Create (status=draft)</button>
+    </form>
+    <pre id="createResult"></pre>
+  </section>
+
+  <section>
+    <h2>Grammar rules</h2>
+    <p class="muted">A shared explanation multiple <code>type=grammar</code> notes can reference.</p>
+    <form id="ruleForm">
+      <label for="r_title">Title</label>
+      <input id="r_title" type="text">
+      <label for="r_html">HTML</label>
+      <textarea id="r_html"></textarea>
+      <button type="submit">Create grammar rule</button>
+    </form>
+    <pre id="ruleResult"></pre>
+    <button id="listRulesBtn" type="button">List grammar rules</button>
+    <pre id="ruleList"></pre>
+  </section>
+
+  <section>
+    <h2>Load / edit a note</h2>
+    <label for="e_id">Note id</label>
+    <input id="e_id" type="text" placeholder="paste an id from Create">
+    <button id="loadBtn" type="button">Load</button>
+
+    <form id="editForm" style="display:none">
+      <label for="e_type">Type</label>
+      <select id="e_type">
+        <option value="word">word</option>
+        <option value="expression">expression</option>
+        <option value="listening">listening</option>
+        <option value="pronunciation">pronunciation</option>
+        <option value="grammar">grammar</option>
+      </select>
+      <label for="e_source_lang">Source language</label>
+      <input id="e_source_lang" type="text">
+      <label for="e_text">Text</label>
+      <textarea id="e_text"></textarea>
+      <label for="e_translations">Translations (JSON)</label>
+      <textarea id="e_translations"></textarea>
+      <label for="e_transcription">Transcription</label>
+      <input id="e_transcription" type="text">
+      <label for="e_pos">Part of speech</label>
+      <input id="e_pos" type="text">
+      <label for="e_lemma">Lemma</label>
+      <input id="e_lemma" type="text">
+      <label for="e_inflections">Inflections (JSON)</label>
+      <textarea id="e_inflections"></textarea>
+      <label for="e_context_text">Context text</label>
+      <textarea id="e_context_text"></textarea>
+      <label for="e_grammar_rule_id">Grammar rule id</label>
+      <input id="e_grammar_rule_id" type="number">
+      <label for="e_status">Status</label>
+      <select id="e_status">
+        <option value="draft">draft</option>
+        <option value="ready">ready</option>
+      </select>
+      <button type="submit">Save</button>
+    </form>
+
+    <div id="audioSection" style="display:none">
+      <h3>Audio</h3>
+      <p class="muted">audio_blob: <span id="e_audio_blob">null</span></p>
+      <audio id="e_audio_preview" controls style="display:none; width:100%"></audio>
+      <input id="e_audio_file" type="file" accept="audio/*">
+      <button id="uploadAudioBtn" type="button">Upload &amp; attach</button>
+      <label for="e_audio_sel_ms">audio_sel_ms (JSON [start, end] in ms)</label>
+      <input id="e_audio_sel_ms" type="text" placeholder="[0, 1200]">
+    </div>
+
+    <button id="deleteBtn" type="button" style="display:none">Delete</button>
+    <pre id="editResult"></pre>
+  </section>
+
+</div>
+
+<script src="/ui/ui.js"></script>
+</body>
+</html>
