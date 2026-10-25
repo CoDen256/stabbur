@@ -19,6 +19,7 @@ COPY routes/ ./routes/
 COPY ui/ ./ui/
 COPY alembic.ini .
 COPY alembic/ ./alembic/
+COPY scripts/ ./scripts/
 
 EXPOSE 5056
 
