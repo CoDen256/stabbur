@@ -31,6 +31,16 @@ services:
     ports:
       - "5056:5056"
 
+  adminer:
+    image: adminer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "8081:8080"
+
 volumes:
   stabbur-pg-data:
   stabbur-blobs:
