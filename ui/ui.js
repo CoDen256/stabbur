@@ -75,6 +75,14 @@ document.getElementById('listRulesBtn').addEventListener('click', async () => {
   document.getElementById('ruleList').textContent = `${status}\n${JSON.stringify(body, null, 2)}`;
 });
 
+function updateNoAudioWarning() {
+  const status = document.getElementById('e_status').value;
+  const hasAudio = document.getElementById('e_audio_blob').textContent.trim() !== 'null';
+  document.getElementById('e_no_audio_warning').style.display =
+    (status === 'ready' && !hasAudio) ? 'block' : 'none';
+}
+document.getElementById('e_status').addEventListener('change', updateNoAudioWarning);
+
 function fillEditForm(note) {
   document.getElementById('e_type').value = note.type;
   document.getElementById('e_source_lang').value = note.source_lang;
@@ -101,6 +109,7 @@ function fillEditForm(note) {
   document.getElementById('editForm').style.display = 'block';
   document.getElementById('audioSection').style.display = 'block';
   document.getElementById('deleteBtn').style.display = 'inline-block';
+  updateNoAudioWarning();
 }
 
 document.getElementById('loadBtn').addEventListener('click', async () => {

@@ -58,5 +58,13 @@ pre {
   margin-top: 0.75rem;
 }
 .muted { color: var(--muted); }
+.warning {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  border: 1px solid #c77;
+  border-radius: 4px;
+  background: color-mix(in srgb, #c77 15%, transparent);
+  font-weight: 600;
+}
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); }

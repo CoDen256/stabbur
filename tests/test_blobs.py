@@ -48,6 +48,24 @@ def test_get_unknown_blob_is_404(client):
     assert resp.status_code == 404
 
 
+def test_get_blob_rejects_malformed_sha256(client):
+    resp = client.get("/blob/not-a-sha256")
+    assert resp.status_code == 404
+
+
+def test_post_blob_rejects_oversized_upload(client, monkeypatch):
+    import routes.blobs as blobs_module
+
+    monkeypatch.setattr(blobs_module, "MAX_BLOB_SIZE_BYTES", 10)
+    resp = client.post(
+        "/blobs",
+        data={"audio": (_file(b"this is definitely more than ten bytes"), "clip.mp3")},
+        headers=AUTH,
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 413
+
+
 def test_note_audio_blob_accepts_uploaded_hash(client):
     data = b"attach me to a note"
     upload = client.post("/blobs", data={"audio": (_file(data), "clip.mp3")}, headers=AUTH, content_type="multipart/form-data")
