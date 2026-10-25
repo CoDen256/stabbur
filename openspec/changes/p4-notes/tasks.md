@@ -107,7 +107,7 @@ anything native. Normal iteration applies.
       `set(types) == {word, expression, listening, pronunciation}`, and a
       sampled `audio_blob` hash round-trips real, non-empty mp3 bytes via
       `GET /blob/<sha256>`.
-- [ ] 5.3 Once the `mjolnir` repo's `p4-builder` change has a real pull step
+- [x] 5.3 Once the `mjolnir` repo's `p4-builder` change has a real pull step
       (its own task 4.1), hand it this service's real URL and confirm its
       fixture and this API agree byte-for-byte on shape. Fix whichever side
       drifted — check with the other change's author/session before
@@ -162,6 +162,35 @@ anything native. Normal iteration applies.
       should be revisited: run `p4-builder`'s 5.4 against this service's
       real URL + a real token, confirm shape agreement end-to-end (not
       just the fixture comparison done here), and only then check this box.
+
+      **Done (2026-10-25).** D85 fixed on `mjolnir`'s side
+      (`STABBUR_AUTH_TOKEN` + `Authorization: Bearer` header in
+      `stabburClient.js`). This service's local instance had lost its task
+      5.1 seed data (container restart since that task ran) —
+      `scripts/seed_p4_notes.py` re-run against it, plus one hand-authored
+      `type=grammar` note added (none of the original 10 were that type) so
+      D89's real `grammar_rule` lookup could be exercised end-to-end on the
+      `mjolnir` side too, not just checked against a fixture.
+
+      Ran `p4-builder`'s real `runForecast`/`runPublish` against this
+      service's actual URL + token (not the fixture): all 11 ready notes
+      pulled, deck-assigned, and minted correctly; the grammar note's real
+      `grammar_rule` title/html came through (not the placeholder); a
+      second run correctly regenerated an edited note's content on its
+      existing card while minting one more genuinely-new note fresh. No
+      shape drift found beyond what was already confirmed via the fixture
+      comparison above — this service's `_serialize_public()` output and
+      `mjolnir`'s fixture still agree exactly. `mjolnir` added a standing,
+      opt-in test (`builder/test/liveStabbur.test.js`) that re-checks this
+      shape agreement against a live instance on demand, so a future
+      `notes-read-api` change accidentally drifting the response shape
+      gets caught without another manual cross-repo session.
+
+      The D83/grammar-rule-content gap noted above is unaffected by this —
+      still real, still `mjolnir`'s side to fix (D89 tracks it there; as of
+      this session `mjolnir`'s `builder` does now call
+      `GET /api/grammar_rules`, so that gap is also closed, just not by
+      this task).
 - [x] 5.4 If anything here diverged from `tun/docs/03-data-model.md` during
       implementation, record it as an ADR amendment in
       `tun/docs/07-decisions.md`, not a silent deviation — this project's
@@ -185,7 +214,7 @@ recorded in the `mjolnir` repo). D83 is superseded by D89. The grammar-rule
 content gap is real but lives entirely on `mjolnir`'s side now (`builder`
 never calls the endpoint that already exists) — nothing to fix here.
 
-- [ ] 6.1 **Verify the full author flow doesn't let a note silently ship
+- [x] 6.1 **Verify the full author flow doesn't let a note silently ship
       with no audio.** `status=ready` with `audio_blob=null` is allowed by
       design (D74) — correct, but also the single most likely authoring
       mistake, since such a note is invisible to Mjølnir forever with no
@@ -193,19 +222,19 @@ never calls the endpoint that already exists) — nothing to fix here.
       warning (not just an absence of the audio player) when marking a note
       ready with no audio attached, after the audio-attach-ordering fix in
       `4000740`.
-- [ ] 6.2 **Flip `app.py`'s `FLASK_DEBUG` default from `"1"` to `"0"`.**
+- [x] 6.2 **Flip `app.py`'s `FLASK_DEBUG` default from `"1"` to `"0"`.**
       `docker-compose.yml` already overrides it correctly for the real
       deployment, so this isn't live today — but the default should be
       secure-unless-opted-in, not insecure-unless-overridden. Any future run
       path that doesn't go through this exact compose file (bare `python
       app.py`, a different orchestrator) would otherwise silently enable
       Werkzeug's interactive debugger.
-- [ ] 6.3 **Add a size cap to `POST /blobs`.** No limit today — low stakes
+- [x] 6.3 **Add a size cap to `POST /blobs`.** No limit today — low stakes
       while only the operator uses the authoring UI (this change's scope),
       but worth bounding before this surface is ever reachable from
       anything less trusted (P7's capture ingestion). Reject oversized
       uploads with a clear 413, don't silently truncate.
-- [ ] 6.4 **Validate the `sha256` path parameter's shape in `GET
+- [x] 6.4 **Validate the `sha256` path parameter's shape in `GET
       /blob/<sha256>`** (64 lowercase hex chars) before passing it to
       `blob_storage.exists()`/`path()`. Not currently exploitable — Flask's
       route converter blocks embedded `/`, so there's no real traversal
