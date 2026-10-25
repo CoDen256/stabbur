@@ -114,9 +114,54 @@ anything native. Normal iteration applies.
       resolving a mismatch unilaterally, since both sides have reasons for
       their current shape.
 
-      Checked 2026-10-25: `p4-builder` is 0/37 tasks complete, no pull step
-      and no fixture file exist yet. Genuinely blocked on that change, not
-      on anything here — revisit once it lands.
+      **Status as of 2026-10-25 (re-checked): `p4-builder` is now 35/37
+      tasks complete**, well past where it stood when this task was first
+      checked (then 0/37). Its own task 4.1 built
+      `builder/test/fixtures/stabburNotes.js` against our D-N4 contract —
+      compared field-for-field just now, it matches our
+      `_serialize_public()` output exactly, no drift. Its task 5.4 ("swap
+      the fixture for the real service") is the mirror of this task and is
+      explicitly blocked on the same thing this task was blocked on
+      (`p4-notes` not yet implemented) — that premise is now false on our
+      side, so this pairing is ready to attempt **except for one newly
+      found blocker, not a shape mismatch**:
+
+      **Blocker (recorded as D85 in `tun/docs/07-decisions.md`):**
+      `mjolnir/builder`'s `stabburClient.js` (`pullNotes()`) sends no
+      `Authorization` header at all. This service's `/api/notes` requires
+      a bearer token on every path except `/ui`/`/blob/` (`auth.py`,
+      D-N1) — a real pull will 401. Neither side's fixture/mock exercised
+      auth, so this was invisible until checked directly just now. Needs,
+      on the `mjolnir` side: a `STABBUR_AUTH_TOKEN` env var in
+      `builder/src/config.js` alongside the existing `STABBUR_BASE_URL`,
+      and `stabburClient.js`'s `pullNotes` sending
+      `Authorization: Bearer <token>`. Nothing to fix here — this
+      service's auth is working as designed and matching `smia`'s pattern
+      intentionally; the gap is entirely on the caller's side. Not
+      resolved in this session since it's `mjolnir`'s code to change, not
+      `stabbur`'s.
+
+      **Separate, already-known gap (D83, also `mjolnir`'s side):**
+      this service exposes `grammar_rule_id` on `type=grammar` notes but
+      no endpoint returns the referenced `grammar_rule` row's own
+      `title`/`html` content — `mjolnir/builder`'s projector (task 4.6)
+      found this building against our actual contract and is currently
+      rendering a placeholder. This service *does* already have
+      `GET /api/grammar_rules` (list) and `POST /api/grammar_rules`
+      (create) from this change's authoring-support work, but not the
+      `GET /api/grammar_rules/:id` D83 suggests, and neither is part of
+      the formal `notes-read-api`/`notes-authoring` specs — a future
+      `stabbur` change should either add the `:id` route or embed
+      `grammar_rule` content directly on the note in the read API
+      response, and formalize whichever one into the spec so it isn't an
+      undocumented, easy-to-miss extra again. No `type=grammar` note has
+      been hand-authored yet in this change's 10 (task 5.1), so nothing is
+      broken in practice today — same as D83 already notes.
+
+      Once D85 is fixed on `mjolnir`'s side, this task is unblocked and
+      should be revisited: run `p4-builder`'s 5.4 against this service's
+      real URL + a real token, confirm shape agreement end-to-end (not
+      just the fixture comparison done here), and only then check this box.
 - [x] 5.4 If anything here diverged from `tun/docs/03-data-model.md` during
       implementation, record it as an ADR amendment in
       `tun/docs/07-decisions.md`, not a silent deviation — this project's
