@@ -88,6 +88,21 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Remember the bearer token across page loads (same-origin localStorage —
+// this is a single-operator internal tool, not a multi-user app, so there's
+// no session-separation concern). The script runs at the end of <body>, so
+// the DOM is already parsed by the time this executes.
+const TOKEN_STORAGE_KEY = 'stabbur_token';
+(function restoreToken() {
+  const input = document.getElementById('tokenInput');
+  const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (saved) input.value = saved;
+  input.addEventListener('input', () => {
+    if (input.value) localStorage.setItem(TOKEN_STORAGE_KEY, input.value);
+    else localStorage.removeItem(TOKEN_STORAGE_KEY);
+  });
+})();
+
 async function api(path, options = {}) {
   const resp = await fetch(path, {
     ...options,
