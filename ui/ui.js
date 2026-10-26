@@ -5,6 +5,13 @@
 // #/new-note, #/new-grammar. One `<section class="page">` per route, shown/
 // hidden via the `.active` class.
 
+// Empty at the domain root (local dev); the mount prefix (e.g. "/stabbur")
+// once reverse-proxied — set by app.py's ui_index() templating in
+// index.html from the proxy's X-Forwarded-Prefix header. Every absolute
+// API/blob request below goes through this so the same bundle works
+// unmodified at either mount point.
+const API_BASE = window.STABBUR_PREFIX || '';
+
 const INFLECTION_SHAPES = {
   substantiv: ['article', 'sg_indef', 'sg_def', 'pl_indef', 'pl_def'],
   adjektiv: ['positiv', 'nøytrum', 'flertall', 'komparativ', 'superlativ'],
@@ -104,7 +111,7 @@ const TOKEN_STORAGE_KEY = 'stabbur_token';
 })();
 
 async function api(path, options = {}) {
-  const resp = await fetch(path, {
+  const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: { ...(options.headers || {}), ...authHeaders() },
   });
@@ -517,7 +524,7 @@ document.getElementById('uploadAudioBtn').addEventListener('click', async () => 
 
   const form = new FormData();
   form.append('audio', fileInput.files[0]);
-  const uploadResp = await fetch('/blobs', { method: 'POST', headers: authHeaders(), body: form });
+  const uploadResp = await fetch(`${API_BASE}/blobs`, { method: 'POST', headers: authHeaders(), body: form });
   const uploadBody = await uploadResp.json();
   if (uploadResp.status !== 200) {
     document.getElementById('noteSaveResult').textContent = `Upload failed: ${JSON.stringify(uploadBody)}`;
@@ -556,7 +563,7 @@ async function renderAudioSection(note) {
   player.style.display = 'block';
 
   const audioEl = document.getElementById('audioElement');
-  audioEl.src = `/blob/${note.audio_blob}`;
+  audioEl.src = `${API_BASE}/blob/${note.audio_blob}`;
 
   let durationMs = 0;
   try {
@@ -870,7 +877,7 @@ async function submitNewNote(status) {
   if (fileInput.files[0]) {
     const form = new FormData();
     form.append('audio', fileInput.files[0]);
-    const uploadResp = await fetch('/blobs', { method: 'POST', headers: authHeaders(), body: form });
+    const uploadResp = await fetch(`${API_BASE}/blobs`, { method: 'POST', headers: authHeaders(), body: form });
     const uploadBody = await uploadResp.json();
     if (uploadResp.status === 200) {
       await api(`/api/notes/${body.id}`, {
