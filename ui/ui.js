@@ -12,6 +12,77 @@ const INFLECTION_SHAPES = {
   adverb: ['form'],
 };
 
+const KNOWN_POS_VALUES = ['substantiv', 'adjektiv', 'verb', 'adverb', 'preposisjon', 'konjunksjon'];
+
+// Only `word` notes carry a meaningful lemma/PoS; only `grammar` notes have
+// no transcription (their E side is a Norwegian answer, not a sound clip).
+const TYPE_VISIBLE_FIELDS = {
+  word: { lemma: true, pos: true, transcription: true },
+  expression: { lemma: false, pos: false, transcription: true },
+  listening: { lemma: false, pos: false, transcription: true },
+  pronunciation: { lemma: false, pos: false, transcription: true },
+  grammar: { lemma: false, pos: false, transcription: false },
+};
+
+function setFieldVisible(fieldId, visible) {
+  const field = document.getElementById(fieldId);
+  if (!field) return;
+  field.style.display = visible ? '' : 'none';
+  const row = field.closest('.field-row');
+  if (row) {
+    const anyHidden = Array.from(row.children).some((c) => c.style.display === 'none');
+    row.classList.toggle('single', anyHidden);
+  }
+}
+
+function applyTypeFieldVisibility(prefix, type) {
+  const vis = TYPE_VISIBLE_FIELDS[type] || { lemma: true, pos: true, transcription: true };
+  setFieldVisible(`${prefix}_lemma_field`, vis.lemma);
+  setFieldVisible(`${prefix}_pos_field`, vis.pos);
+  setFieldVisible(`${prefix}_transcription_field`, vis.transcription);
+}
+
+// PoS select + "Custom…" text fallback, shared shape between the note
+// editor (e_*) and the new-note form (c_*).
+function setPosValue(selectId, customId, pos) {
+  const select = document.getElementById(selectId);
+  const custom = document.getElementById(customId);
+  if (!pos) {
+    select.value = '';
+    custom.style.display = 'none';
+    custom.value = '';
+  } else if (KNOWN_POS_VALUES.includes(pos)) {
+    select.value = pos;
+    custom.style.display = 'none';
+    custom.value = '';
+  } else {
+    select.value = '__custom__';
+    custom.style.display = 'block';
+    custom.value = pos;
+  }
+}
+
+function getPosValue(selectId, customId) {
+  const select = document.getElementById(selectId);
+  if (select.value === '__custom__') return document.getElementById(customId).value || null;
+  return select.value || null;
+}
+
+function wirePosCustomToggle(selectId, customId, onChange) {
+  document.getElementById(selectId).addEventListener('change', () => {
+    const select = document.getElementById(selectId);
+    const custom = document.getElementById(customId);
+    if (select.value === '__custom__') {
+      custom.style.display = 'block';
+      custom.focus();
+    } else {
+      custom.style.display = 'none';
+      custom.value = '';
+    }
+    if (onChange) onChange();
+  });
+}
+
 function authHeaders() {
   const token = document.getElementById('tokenInput').value;
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -57,6 +128,72 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+// ------------------------------------------------- translation list field --
+
+function addTranslationRow(containerId, lang, text, onChange) {
+  const container = document.getElementById(containerId);
+  const row = document.createElement('div');
+  row.className = 'translation-row';
+  row.innerHTML = `
+    <input type="text" class="t-lang" placeholder="lang" value="${escapeHtml(lang || '')}">
+    <input type="text" class="t-text" placeholder="translation">
+    <button type="button" class="btn-ghost t-remove">✕</button>
+  `;
+  row.querySelector('.t-text').value = text || '';
+  row.querySelector('.t-remove').addEventListener('click', () => { row.remove(); if (onChange) onChange(); });
+  row.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', () => { if (onChange) onChange(); }));
+  container.appendChild(row);
+}
+
+function renderTranslationRows(containerId, translations, onChange) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  (translations || []).forEach((t) => addTranslationRow(containerId, t.lang, t.text, onChange));
+}
+
+function readTranslationRows(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .translation-row`))
+    .map((row) => ({ lang: row.querySelector('.t-lang').value, text: row.querySelector('.t-text').value }))
+    .filter((t) => t.lang || t.text);
+}
+
+// -------------------------------------------------- inflection fields UI --
+
+function renderInflectionFields(containerId, pos, values) {
+  const container = document.getElementById(containerId);
+  const shape = INFLECTION_SHAPES[pos];
+  if (!shape) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = shape.map((field) => `
+    <div class="inflection-field">
+      <label>${escapeHtml(field.replace(/_/g, ' '))}</label>
+      <input type="text" data-inflection-field="${field}" value="${escapeHtml((values && values[field]) || '')}">
+    </div>
+  `).join('');
+}
+
+function readInflectionFields(containerId) {
+  const out = {};
+  document.querySelectorAll(`#${containerId} [data-inflection-field]`).forEach((input) => {
+    out[input.dataset.inflectionField] = input.value;
+  });
+  return out;
+}
+
+// --------------------------------------------------- grammar rule select --
+
+async function populateGrammarRuleSelect(selectEl, currentValue) {
+  const { status, body } = await api('/api/grammar_rules?sort=title_asc');
+  const options = ['<option value="">— none —</option>'];
+  if (status === 200) {
+    body.forEach((r) => options.push(`<option value="${r.id}">${escapeHtml(r.title)} (#${r.id})</option>`));
+  }
+  selectEl.innerHTML = options.join('');
+  selectEl.value = currentValue != null ? String(currentValue) : '';
 }
 
 // ---------------------------------------------------------------- router --
@@ -109,10 +246,50 @@ window.addEventListener('DOMContentLoaded', router);
 
 // ------------------------------------------------------------ notes list --
 
+const notesListState = { status: '', type: '', sortField: 'updated', sortDir: 'desc' };
+
+function wireChipGroup(containerId, onChange) {
+  const group = document.getElementById(containerId);
+  group.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      group.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      onChange(chip.dataset.value);
+    });
+  });
+}
+
+wireChipGroup('notesStatusChips', (value) => { notesListState.status = value; renderNotesList(); });
+wireChipGroup('notesTypeChips', (value) => { notesListState.type = value; renderNotesList(); });
+
+function wireSortableHeaders(theadSelector, state, defaultDirs, onChange) {
+  document.querySelectorAll(`${theadSelector} .sort-th`).forEach((th) => {
+    th.addEventListener('click', () => {
+      const field = th.dataset.sort;
+      if (state.sortField === field) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortField = field;
+        state.sortDir = defaultDirs[field] || 'asc';
+      }
+      document.querySelectorAll(`${theadSelector} .sort-th`).forEach((el) => {
+        const active = el.dataset.sort === state.sortField;
+        el.classList.toggle('sort-active', active);
+        el.querySelector('.sort-caret').textContent = active ? (state.sortDir === 'asc' ? '▲' : '▼') : '';
+      });
+      onChange();
+    });
+  });
+}
+
+wireSortableHeaders('#page-notes thead', notesListState, { text: 'asc', updated: 'desc' }, renderNotesList);
+document.querySelector('#page-notes thead .sort-th[data-sort="updated"]').classList.add('sort-active');
+document.querySelector('#page-notes thead .sort-th[data-sort="updated"] .sort-caret').textContent = '▼';
+
 async function renderNotesList() {
-  const status = document.getElementById('notesStatusFilter').value;
-  const type = document.getElementById('notesTypeFilter').value;
-  const sort = document.getElementById('notesSort').value;
+  const status = notesListState.status;
+  const type = notesListState.type;
+  const sort = `${notesListState.sortField}_${notesListState.sortDir}`;
   const q = document.getElementById('notesSearch').value.trim();
 
   const { status: httpStatus, body } = await api(`/api/notes/authoring${qs({ status, type, sort, q })}`);
@@ -151,9 +328,6 @@ async function renderNotesList() {
   });
 }
 
-['notesStatusFilter', 'notesTypeFilter', 'notesSort'].forEach((id) =>
-  document.getElementById(id).addEventListener('change', renderNotesList)
-);
 let notesSearchDebounce;
 document.getElementById('notesSearch').addEventListener('input', () => {
   clearTimeout(notesSearchDebounce);
@@ -187,37 +361,75 @@ async function renderNoteDetail(id) {
   document.getElementById('e_text').value = note.text || '';
   document.getElementById('e_lemma').value = note.lemma || '';
   document.getElementById('e_type').value = note.type;
-  document.getElementById('e_pos').value = note.pos || '';
+  setPosValue('e_pos_select', 'e_pos_custom', note.pos);
   document.getElementById('e_source_lang').value = note.source_lang || '';
   document.getElementById('e_status').value = note.status;
   document.getElementById('e_transcription').value = note.transcription || '';
-  document.getElementById('e_translations').value = JSON.stringify(note.translations ?? [], null, 2);
-  document.getElementById('e_inflections').value = JSON.stringify(note.inflections ?? {}, null, 2);
+  renderTranslationRows('e_translations_list', note.translations, updateNoteJsonView);
   document.getElementById('e_context_text').value = note.context_text || '';
-  document.getElementById('e_grammar_rule_id').value = note.grammar_rule_id ?? '';
+  await populateGrammarRuleSelect(document.getElementById('e_grammar_rule_id'), note.grammar_rule_id);
   document.getElementById('noteSaveResult').textContent = '';
 
+  updateEditInflectionFields(note.pos, note.inflections);
+  updateEditFieldVisibility();
   updateNoAudioWarning();
   updateNoteJsonView();
   renderAudioSection(note);
 }
 
+function currentInflectionShapeField() {
+  const pos = getPosValue('e_pos_select', 'e_pos_custom');
+  return INFLECTION_SHAPES[pos] ? pos : null;
+}
+
+function updateEditInflectionFields(pos, values) {
+  const shapedPos = INFLECTION_SHAPES[pos] ? pos : null;
+  document.getElementById('e_inflections_field').style.display = shapedPos ? 'block' : 'none';
+  if (shapedPos) renderInflectionFields('e_inflections_fields', shapedPos, values);
+  else document.getElementById('e_inflections_fields').innerHTML = '';
+}
+
+function updateEditFieldVisibility() {
+  const type = document.getElementById('e_type').value;
+  document.getElementById('e_grammar_rule_field').style.display = type === 'grammar' ? 'block' : 'none';
+  applyTypeFieldVisibility('e', type);
+}
+
+document.getElementById('e_type').addEventListener('change', updateEditFieldVisibility);
+wirePosCustomToggle('e_pos_select', 'e_pos_custom', () => {
+  const pos = getPosValue('e_pos_select', 'e_pos_custom');
+  // Carry forward whatever's currently typed into the inflection fields
+  // (e.g. the operator just corrected the PoS spelling) rather than
+  // resetting them — renderInflectionFields only picks out the keys the
+  // new shape actually has, so stale keys from a different shape are
+  // harmlessly dropped.
+  const typedValues = readInflectionFields('e_inflections_fields');
+  const hasTypedValues = Object.values(typedValues).some((v) => v);
+  const values = hasTypedValues
+    ? typedValues
+    : (currentNote && currentNote.pos === pos ? currentNote.inflections : null);
+  updateEditInflectionFields(pos, values);
+  updateNoteJsonView();
+});
+document.getElementById('e_add_translation').addEventListener('click', () => {
+  addTranslationRow('e_translations_list', '', '', updateNoteJsonView);
+});
+
 function readEditForm() {
-  let translations, inflections;
-  try { translations = JSON.parse(document.getElementById('e_translations').value || '[]'); }
-  catch { translations = currentNote?.translations ?? []; }
-  try { inflections = JSON.parse(document.getElementById('e_inflections').value || '{}'); }
-  catch { inflections = currentNote?.inflections ?? {}; }
+  const shapedPos = currentInflectionShapeField();
+  const inflections = shapedPos
+    ? readInflectionFields('e_inflections_fields')
+    : (currentNote?.inflections ?? {});
 
   return {
     text: document.getElementById('e_text').value,
     lemma: document.getElementById('e_lemma').value || null,
     type: document.getElementById('e_type').value,
-    pos: document.getElementById('e_pos').value || null,
+    pos: getPosValue('e_pos_select', 'e_pos_custom'),
     source_lang: document.getElementById('e_source_lang').value,
     status: document.getElementById('e_status').value,
     transcription: document.getElementById('e_transcription').value || null,
-    translations,
+    translations: readTranslationRows('e_translations_list'),
     inflections,
     context_text: document.getElementById('e_context_text').value || null,
     grammar_rule_id: document.getElementById('e_grammar_rule_id').value
@@ -454,8 +666,14 @@ document.getElementById('previewTrimBtn').addEventListener('click', () => {
 
 // --------------------------------------------------------- grammar list --
 
+const grammarListState = { sortField: 'usage', sortDir: 'desc' };
+
+wireSortableHeaders('#page-grammar thead', grammarListState, { title: 'asc', usage: 'desc' }, renderGrammarList);
+document.querySelector('#page-grammar thead .sort-th[data-sort="usage"]').classList.add('sort-active');
+document.querySelector('#page-grammar thead .sort-th[data-sort="usage"] .sort-caret').textContent = '▼';
+
 async function renderGrammarList() {
-  const sort = document.getElementById('grammarSort').value;
+  const sort = `${grammarListState.sortField}_${grammarListState.sortDir}`;
   const q = document.getElementById('grammarSearch').value.trim();
   const { status, body } = await api(`/api/grammar_rules${qs({ sort, q })}`);
   const tbody = document.getElementById('grammarTableBody');
@@ -484,7 +702,6 @@ async function renderGrammarList() {
   });
 }
 
-['grammarSort'].forEach((id) => document.getElementById(id).addEventListener('change', renderGrammarList));
 let grammarSearchDebounce;
 document.getElementById('grammarSearch').addEventListener('input', () => {
   clearTimeout(grammarSearchDebounce);
@@ -505,6 +722,7 @@ async function renderGrammarDetail(id) {
   document.getElementById('grammarDetailTitle').textContent = rule.title;
   document.getElementById('gr_title').value = rule.title;
   document.getElementById('gr_html').value = rule.html;
+  document.getElementById('gr_html_preview').innerHTML = rule.html;
   document.getElementById('grammarSaveResult').textContent = '';
   document.getElementById('grammarDeleteBlocked').textContent = '';
   document.getElementById('grammarUsageHeading').textContent = `Used by ${rule.usage_count} note${rule.usage_count === 1 ? '' : 's'}`;
@@ -525,6 +743,10 @@ async function renderGrammarDetail(id) {
     list.innerHTML = '<div class="inline-note">No notes reference this rule yet.</div>';
   }
 }
+
+document.getElementById('gr_html').addEventListener('input', (e) => {
+  document.getElementById('gr_html_preview').innerHTML = e.target.value;
+});
 
 document.getElementById('grammarSaveBtn').addEventListener('click', async () => {
   if (!currentRule) return;
@@ -563,59 +785,51 @@ document.getElementById('grammarDeleteBtn').addEventListener('click', async () =
 
 // ------------------------------------------------------------- new note --
 
-function renderInflectionFields(pos) {
-  const container = document.getElementById('c_inflections_fields');
-  const shape = INFLECTION_SHAPES[pos];
-  if (!shape) {
-    container.innerHTML = '';
-    return;
-  }
-  container.innerHTML = `<label>Inflections (${escapeHtml(pos)})</label>` + shape.map((field) => `
-    <div style="margin-top:6px;">
-      <label style="font-weight:400; text-transform:capitalize;">${escapeHtml(field.replace(/_/g, ' '))}</label>
-      <input type="text" data-inflection-field="${field}">
-    </div>
-  `).join('');
-}
-
 function updateNewNoteFieldVisibility() {
   const type = document.getElementById('c_type').value;
-  document.getElementById('c_pos_field').style.display = type === 'word' ? 'block' : 'none';
+  applyTypeFieldVisibility('c', type);
   document.getElementById('c_grammar_rule_field').style.display = type === 'grammar' ? 'block' : 'none';
   if (type !== 'word') {
-    document.getElementById('c_pos').value = '';
-    renderInflectionFields('');
+    setPosValue('c_pos', 'c_pos_custom', '');
+    document.getElementById('c_inflections_field').style.display = 'none';
+    document.getElementById('c_inflections_fields').innerHTML = '';
   }
 }
 
-function renderNewNote() {
+function updateNewNoteInflectionFields() {
+  const pos = getPosValue('c_pos', 'c_pos_custom');
+  const shaped = !!INFLECTION_SHAPES[pos];
+  document.getElementById('c_inflections_field').style.display = shaped ? 'block' : 'none';
+  renderInflectionFields('c_inflections_fields', pos);
+}
+
+wirePosCustomToggle('c_pos', 'c_pos_custom', updateNewNoteInflectionFields);
+
+async function renderNewNote() {
   document.getElementById('createForm').reset();
   document.getElementById('c_source_lang').value = 'no';
-  document.getElementById('c_translations').value = '[]';
   document.getElementById('createResult').textContent = '';
+  renderTranslationRows('c_translations_list', [], null);
   updateNewNoteFieldVisibility();
-  renderInflectionFields(document.getElementById('c_pos').value);
+  updateNewNoteInflectionFields();
+  await populateGrammarRuleSelect(document.getElementById('c_grammar_rule_id'), null);
 }
 
 document.getElementById('c_type').addEventListener('change', updateNewNoteFieldVisibility);
-document.getElementById('c_pos').addEventListener('change', (e) => renderInflectionFields(e.target.value));
+document.getElementById('c_add_translation').addEventListener('click', () => {
+  addTranslationRow('c_translations_list', '', '', null);
+});
 
 async function submitNewNote(status) {
-  let translations;
-  try { translations = JSON.parse(document.getElementById('c_translations').value || '[]'); }
-  catch { translations = []; }
-
-  const inflections = {};
-  document.querySelectorAll('#c_inflections_fields [data-inflection-field]').forEach((input) => {
-    inflections[input.dataset.inflectionField] = input.value;
-  });
+  const translations = readTranslationRows('c_translations_list');
+  const inflections = readInflectionFields('c_inflections_fields');
 
   const payload = {
     type: document.getElementById('c_type').value,
     source_lang: document.getElementById('c_source_lang').value,
     text: document.getElementById('c_text').value,
     status,
-    pos: document.getElementById('c_pos').value || null,
+    pos: getPosValue('c_pos', 'c_pos_custom'),
     lemma: document.getElementById('c_lemma').value || null,
     transcription: document.getElementById('c_transcription').value || null,
     translations,
@@ -666,7 +880,12 @@ document.getElementById('createReadyBtn').addEventListener('click', () => submit
 function renderNewGrammar() {
   document.getElementById('ruleForm').reset();
   document.getElementById('ruleResult').textContent = '';
+  document.getElementById('r_html_preview').innerHTML = '';
 }
+
+document.getElementById('r_html').addEventListener('input', (e) => {
+  document.getElementById('r_html_preview').innerHTML = e.target.value;
+});
 
 document.getElementById('ruleForm').addEventListener('submit', async (e) => {
   e.preventDefault();

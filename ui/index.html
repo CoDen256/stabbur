@@ -48,32 +48,34 @@
       </div>
       <div class="toolbar">
         <input class="search-input" type="search" id="notesSearch" placeholder="Search text, translation, lemma…">
-        <select id="notesStatusFilter">
-          <option value="">Status: all</option>
-          <option value="ready">ready</option>
-          <option value="draft">draft</option>
-        </select>
-        <select id="notesTypeFilter">
-          <option value="">Type: all</option>
-          <option value="word">word</option>
-          <option value="expression">expression</option>
-          <option value="listening">listening</option>
-          <option value="pronunciation">pronunciation</option>
-          <option value="grammar">grammar</option>
-        </select>
-        <div class="spacer"></div>
-        <select id="notesSort">
-          <option value="updated_desc">Sort: updated, newest</option>
-          <option value="created_desc">Sort: created, newest</option>
-          <option value="text_asc">Sort: text, A–Z</option>
-        </select>
+      </div>
+      <div class="chip-row">
+        <span class="chip-row-label">Status</span>
+        <div class="chip-group" id="notesStatusChips" data-filter="status">
+          <button type="button" class="chip active" data-value="">All</button>
+          <button type="button" class="chip" data-value="ready">Ready</button>
+          <button type="button" class="chip" data-value="draft">Draft</button>
+        </div>
+      </div>
+      <div class="chip-row">
+        <span class="chip-row-label">Type</span>
+        <div class="chip-group" id="notesTypeChips" data-filter="type">
+          <button type="button" class="chip active" data-value="">All</button>
+          <button type="button" class="chip" data-value="word">word</button>
+          <button type="button" class="chip" data-value="expression">expression</button>
+          <button type="button" class="chip" data-value="listening">listening</button>
+          <button type="button" class="chip" data-value="pronunciation">pronunciation</button>
+          <button type="button" class="chip" data-value="grammar">grammar</button>
+        </div>
       </div>
       <div class="panel">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Text</th><th>Type</th><th>PoS</th><th>Status</th><th>Audio</th><th>Translation</th><th>Updated</th>
+                <th><span class="sort-th" data-sort="text">Text <span class="sort-caret"></span></span></th>
+                <th>Type</th><th>PoS</th><th>Status</th><th>Audio</th><th>Translation</th>
+                <th><span class="sort-th" data-sort="updated">Updated <span class="sort-caret"></span></span></th>
               </tr>
             </thead>
             <tbody id="notesTableBody"></tbody>
@@ -102,7 +104,7 @@
             <form id="noteEditForm">
               <div class="field-row">
                 <div class="field"><label for="e_text">Text (source language)</label><textarea id="e_text" required></textarea></div>
-                <div class="field"><label for="e_lemma">Lemma</label><input id="e_lemma" type="text"></div>
+                <div class="field" id="e_lemma_field"><label for="e_lemma">Lemma</label><input id="e_lemma" type="text"></div>
               </div>
               <div class="field-row">
                 <div class="field"><label for="e_type">Type</label>
@@ -114,7 +116,20 @@
                     <option value="grammar">grammar</option>
                   </select>
                 </div>
-                <div class="field"><label for="e_pos">Part of speech</label><input id="e_pos" type="text" placeholder="substantiv, verb, ..."></div>
+                <div class="field" id="e_pos_field">
+                  <label for="e_pos_select">Part of speech</label>
+                  <select id="e_pos_select">
+                    <option value="">— none —</option>
+                    <option value="substantiv">substantiv</option>
+                    <option value="adjektiv">adjektiv</option>
+                    <option value="verb">verb</option>
+                    <option value="adverb">adverb</option>
+                    <option value="preposisjon">preposisjon</option>
+                    <option value="konjunksjon">konjunksjon / subjunksjon</option>
+                    <option value="__custom__">Custom…</option>
+                  </select>
+                  <input id="e_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
+                </div>
               </div>
               <div class="field-row">
                 <div class="field"><label for="e_source_lang">Source language</label><input id="e_source_lang" type="text"></div>
@@ -125,11 +140,21 @@
                   </select>
                 </div>
               </div>
-              <div class="field"><label for="e_transcription">Transcription</label><input id="e_transcription" type="text"></div>
-              <div class="field"><label for="e_translations">Translations (JSON array of {lang, text})</label><textarea id="e_translations"></textarea></div>
-              <div class="field"><label for="e_inflections">Inflections (flat JSON object)</label><textarea id="e_inflections"></textarea></div>
+              <div class="field" id="e_transcription_field"><label for="e_transcription">Transcription</label><input id="e_transcription" type="text"></div>
+              <div class="field">
+                <label>Translations</label>
+                <div id="e_translations_list" class="translation-list"></div>
+                <button type="button" class="btn-ghost" id="e_add_translation">+ Add translation</button>
+              </div>
+              <div class="field" id="e_inflections_field" style="display:none">
+                <label>Inflections</label>
+                <div id="e_inflections_fields" class="inflection-fields"></div>
+              </div>
               <div class="field"><label for="e_context_text">Context text</label><textarea id="e_context_text"></textarea></div>
-              <div class="field"><label for="e_grammar_rule_id">Grammar rule id (required for type=grammar)</label><input id="e_grammar_rule_id" type="number"></div>
+              <div class="field" id="e_grammar_rule_field" style="display:none">
+                <label for="e_grammar_rule_id">Grammar rule</label>
+                <select id="e_grammar_rule_id"><option value="">— none —</option></select>
+              </div>
               <p id="e_no_audio_warning" class="warning" style="display:none">
                 ⚠ No audio attached — marking this note ready now means it will be
                 invisible to Mjølnir forever, with no error anywhere. Attach audio
@@ -187,15 +212,14 @@
       </div>
       <div class="toolbar">
         <input class="search-input" type="search" id="grammarSearch" placeholder="Search title…">
-        <select id="grammarSort">
-          <option value="usage_desc">Sort: most used</option>
-          <option value="title_asc">Sort: title, A–Z</option>
-        </select>
       </div>
       <div class="panel">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Title</th><th>Used by</th></tr></thead>
+            <thead><tr>
+              <th><span class="sort-th" data-sort="title">Title <span class="sort-caret"></span></span></th>
+              <th><span class="sort-th" data-sort="usage">Used by <span class="sort-caret"></span></span></th>
+            </tr></thead>
             <tbody id="grammarTableBody"></tbody>
           </table>
         </div>
@@ -219,6 +243,10 @@
         <div class="panel panel-pad">
           <div class="field"><label for="gr_title">Title</label><input id="gr_title" type="text"></div>
           <div class="field"><label for="gr_html">Explanation (HTML)</label><textarea id="gr_html" style="min-height:160px;"></textarea></div>
+          <div class="field">
+            <label>Preview</label>
+            <div id="gr_html_preview" class="html-preview"></div>
+          </div>
           <p id="grammarSaveResult" class="inline-note"></p>
         </div>
         <div class="panel panel-pad">
@@ -253,19 +281,28 @@
               <option value="adverb">adverb</option>
               <option value="preposisjon">preposisjon</option>
               <option value="konjunksjon">konjunksjon / subjunksjon</option>
+              <option value="__custom__">Custom…</option>
             </select>
+            <input id="c_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
             <div class="inline-note">Picking a PoS fills in the right inflection fields below — nothing to remember by hand.</div>
           </div>
           <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
           <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>
-          <div class="field"><label for="c_lemma">Lemma</label><input id="c_lemma" type="text"></div>
-          <div class="field"><label for="c_transcription">Transcription</label><input id="c_transcription" type="text"></div>
-          <div class="field"><label for="c_translations">Translations (JSON array of {lang, text})</label><textarea id="c_translations">[]</textarea></div>
-          <div class="field" id="c_inflections_fields"></div>
+          <div class="field" id="c_lemma_field"><label for="c_lemma">Lemma</label><input id="c_lemma" type="text"></div>
+          <div class="field" id="c_transcription_field"><label for="c_transcription">Transcription</label><input id="c_transcription" type="text"></div>
+          <div class="field">
+            <label>Translations</label>
+            <div id="c_translations_list" class="translation-list"></div>
+            <button type="button" class="btn-ghost" id="c_add_translation">+ Add translation</button>
+          </div>
+          <div class="field" id="c_inflections_field" style="display:none">
+            <label>Inflections</label>
+            <div id="c_inflections_fields" class="inflection-fields"></div>
+          </div>
           <div class="field"><label for="c_context_text">Context text</label><textarea id="c_context_text"></textarea></div>
           <div class="field" id="c_grammar_rule_field" style="display:none">
-            <label for="c_grammar_rule_id">Grammar rule id (required for type=grammar)</label>
-            <input id="c_grammar_rule_id" type="number">
+            <label for="c_grammar_rule_id">Grammar rule (required for type=grammar)</label>
+            <select id="c_grammar_rule_id"><option value="">— none —</option></select>
           </div>
           <div class="field"><label for="c_audio_file">Audio (optional — can also attach later)</label>
             <div class="dropzone"><input id="c_audio_file" type="file" accept="audio/*"></div>
@@ -286,6 +323,10 @@
         <form id="ruleForm">
           <div class="field"><label for="r_title">Title</label><input id="r_title" type="text" placeholder="e.g. Reflexive verbs with -s" required></div>
           <div class="field"><label for="r_html">Explanation (HTML)</label><textarea id="r_html" style="min-height:140px;" placeholder="<p>...</p>" required></textarea></div>
+          <div class="field">
+            <label>Preview</label>
+            <div id="r_html_preview" class="html-preview"></div>
+          </div>
           <div style="display:flex; gap:8px; margin-top:18px;"><button type="submit" class="btn-primary">Create rule</button></div>
         </form>
         <pre id="ruleResult" class="inline-note"></pre>

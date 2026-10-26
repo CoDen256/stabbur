@@ -164,13 +164,46 @@ td.num { text-align: right; font-family: ui-monospace, monospace; }
 .pill-err { background: var(--err-soft); color: var(--err); }
 
 .sort-th { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
-.sort-caret { opacity: .5; font-size: 9px; }
+.sort-th:hover { color: var(--text); }
+.sort-caret { opacity: .5; font-size: 9px; width: 8px; display: inline-block; }
+.sort-th.sort-active { color: var(--accent-text); }
+.sort-th.sort-active .sort-caret { opacity: 1; }
+
+.chip-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.chip-row-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); flex: none; }
+.chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 5px 12px; border-radius: 99px;
+  border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-dim);
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--text-faint); color: var(--text); }
+.chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+
+.translation-list { display: flex; flex-direction: column; gap: 8px; }
+.translation-row { display: flex; gap: 8px; align-items: center; }
+.translation-row select { width: 90px; flex: none; }
+.translation-row input { flex: 1; }
+.translation-row .btn-ghost { flex: none; padding: 6px 9px; }
+
+.inflection-fields { display: flex; flex-direction: column; gap: 10px; }
+.inflection-field label { font-weight: 400; text-transform: capitalize; font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 4px; }
+
+.html-preview {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-sunken); padding: 10px 12px; font-size: 13.5px;
+  min-height: 2.5em; overflow-wrap: break-word;
+}
+.html-preview :first-child { margin-top: 0; }
+.html-preview :last-child { margin-bottom: 0; }
 
 .field { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
 .field:first-child { margin-top: 0; }
 .field label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
 .field-row:first-child { margin-top: 0; }
+.field-row.single { grid-template-columns: 1fr; }
 
 .detail-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
 @media (max-width: 920px) { .detail-grid { grid-template-columns: 1fr; } }

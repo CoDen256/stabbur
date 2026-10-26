@@ -17,8 +17,11 @@ from db.session import session_scope
 
 AUTHORING_SORTS = {
     "updated_desc": Note.updated_at.desc(),
+    "updated_asc": Note.updated_at.asc(),
     "created_desc": Note.created_at.desc(),
+    "created_asc": Note.created_at.asc(),
     "text_asc": Note.text.asc(),
+    "text_desc": Note.text.desc(),
 }
 
 REQUIRED_CREATE_FIELDS = ("type", "source_lang", "text")
@@ -290,8 +293,9 @@ def register_notes_routes(app):
     @app.route("/api/grammar_rules", methods=["GET"])
     def list_grammar_rules():
         sort = request.args.get("sort", "usage_desc")
-        if sort not in ("usage_desc", "title_asc"):
-            return jsonify({"error": "sort must be one of ['usage_desc', 'title_asc']"}), 400
+        grammar_sorts = ("usage_desc", "usage_asc", "title_asc", "title_desc")
+        if sort not in grammar_sorts:
+            return jsonify({"error": f"sort must be one of {list(grammar_sorts)}"}), 400
         q = request.args.get("q")
 
         with session_scope() as db:
@@ -303,6 +307,10 @@ def register_notes_routes(app):
             rows = [_serialize_grammar_rule(r, counts.get(r.id, 0)) for r in rules]
             if sort == "usage_desc":
                 rows.sort(key=lambda r: r["usage_count"], reverse=True)
+            elif sort == "usage_asc":
+                rows.sort(key=lambda r: r["usage_count"])
+            elif sort == "title_desc":
+                rows.sort(key=lambda r: r["title"].lower(), reverse=True)
             else:
                 rows.sort(key=lambda r: r["title"].lower())
             return jsonify(rows), 200
