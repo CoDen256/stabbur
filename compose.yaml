@@ -1,0 +1,72 @@
+# D94: renamed from docker-compose.yml to compose.yaml, service names made
+# unique (stabbur-postgres, not postgres) so tun/compose.yaml's `include:`
+# can merge this file alongside mjolnir's without a service-name collision
+# — Compose silently keeps only the first included file's definition of a
+# colliding service name, dropping the second with no error, so this isn't
+# cosmetic.
+services:
+  stabbur-postgres:
+    image: postgres:16
+    container_name: stabbur-postgres
+    environment:
+      POSTGRES_USER: stabbur
+      POSTGRES_PASSWORD: stabbur
+      POSTGRES_DB: stabbur
+    ports:
+      - "5434:5432"   # published for local dev (native venv connecting in); drop for a locked-down deploy
+    volumes:
+      - stabbur-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stabbur"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    container_name: stabbur-backend
+    depends_on:
+      stabbur-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://stabbur:stabbur@stabbur-postgres:5432/stabbur
+      STABBUR_AUTH_TOKEN: ${STABBUR_AUTH_TOKEN:-changeme}
+      FLASK_DEBUG: "0"
+    volumes:
+      # Named volume, not baked into the image: blob bytes should survive
+      # container rebuilds (D45 — stabbur owns the canonical learning audio).
+      - stabbur-blobs:/app/blobs
+    ports:
+      - "5056:5056"
+    networks:
+      # default: this project's own network, unchanged.
+      # tun-shared: lets mjolnir's Caddy reach this container by service
+      # name ("backend") when the two repos are run as two fully
+      # independent `docker compose up` stacks — see mjolnir's
+      # caddy/Caddyfile and .env.example (STABBUR_UPSTREAM) for the other
+      # side of this. One-time setup: `docker network create tun-shared`
+      # before bringing either stack up; both `compose up`s are otherwise
+      # unchanged. Harmless to omit if stabbur is only ever run standalone
+      # with nothing needing to reach it by Docker service name.
+      - default
+      - tun-shared
+
+  adminer:
+    image: adminer
+    container_name: stabbur-adminer
+    depends_on:
+      stabbur-postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: stabbur-postgres
+    ports:
+      - "8081:8080"
+
+networks:
+  default: {}
+  tun-shared:
+    external: true
+
+volumes:
+  stabbur-pg-data:
+  stabbur-blobs:
