@@ -68,5 +68,16 @@ networks:
     external: true
 
 volumes:
+  # Explicit `name:` so this is the SAME Docker volume whether brought up
+  # via `cd stabbur && docker compose up` or through `tun/compose.yaml`'s
+  # `include:` — without it, Compose prefixes the volume name with whatever
+  # project is running (`stabbur_...` vs `tun_...`), creating two entirely
+  # separate volumes. Confirmed live: every note silently "disappeared"
+  # switching between the two entry points, because they'd never been in
+  # the same volume at all — same underlying cause as the `tun-shared`
+  # network needing an explicit shared name (D98); unnamed volumes have the
+  # identical per-project-prefix problem.
   stabbur-pg-data:
+    name: stabbur_stabbur-pg-data
   stabbur-blobs:
+    name: stabbur_stabbur-blobs
