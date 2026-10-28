@@ -14,6 +14,7 @@ from flask_cors import CORS
 
 from auth import register_auth
 from routes.blobs import register_blob_routes
+from routes.enrich import register_enrich_routes
 from routes.notes import register_notes_routes
 
 app = Flask(__name__)
@@ -22,6 +23,7 @@ app.json.ensure_ascii = False  # Norwegian characters as literal UTF-8, not \uXX
 register_auth(app)
 register_blob_routes(app)
 register_notes_routes(app)
+register_enrich_routes(app)
 
 
 @app.route("/ui", methods=["GET"])

@@ -32,6 +32,13 @@ services:
       DATABASE_URL: postgresql+psycopg2://stabbur:stabbur@stabbur-postgres:5432/stabbur
       STABBUR_AUTH_TOKEN: ${STABBUR_AUTH_TOKEN:-changeme}
       FLASK_DEBUG: "0"
+      # smia-enrichment-panel: the note editor's "Suggest" panels proxy
+      # through this backend to smia — "smia-backend" is the alias smia's
+      # own compose.yaml/docker-compose.yml publishes on tun-shared
+      # (plain "backend" would collide with this very service's own name
+      # on that shared network, same D94 problem the postgres services hit).
+      SMIA_BASE_URL: ${SMIA_BASE_URL:-http://smia-backend:5055}
+      SMIA_AUTH_TOKEN: ${SMIA_AUTH_TOKEN:-changeme}
     volumes:
       # Named volume, not baked into the image: blob bytes should survive
       # container rebuilds (D45 — stabbur owns the canonical learning audio).

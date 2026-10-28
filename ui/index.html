@@ -142,15 +142,28 @@
                   </select>
                 </div>
               </div>
-              <div class="field" id="e_transcription_field"><label for="e_transcription">Transcription</label><input id="e_transcription" type="text"></div>
+              <div class="field" id="e_transcription_field">
+                <div class="field-label-row"><label for="e_transcription">Transcription</label>
+                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_ipa_suggest">Suggest pronunciations</button>
+                </div>
+                <input id="e_transcription" type="text">
+                <div class="suggest-panel" id="e_ipa_suggest" data-kind="ipa" data-prefix="e"></div>
+              </div>
               <div class="field">
-                <label>Translations</label>
+                <div class="field-label-row"><label>Translations</label>
+                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_translations_suggest">Suggest translations</button>
+                </div>
                 <div id="e_translations_list" class="translation-list"></div>
                 <button type="button" class="btn-ghost" id="e_add_translation">+ Add translation</button>
+                <div class="suggest-panel" id="e_translations_suggest" data-kind="translations" data-prefix="e"></div>
               </div>
               <div class="field" id="e_inflections_field" style="display:none">
-                <label>Inflections</label>
+                <div class="field-label-row"><label>Inflections</label>
+                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_inflections_suggest">Look up paradigm</button>
+                </div>
                 <div id="e_inflections_fields" class="inflection-fields"></div>
+                <p class="inline-note">Different providers shape this differently — copy whichever form matches, this never auto-fills.</p>
+                <div class="suggest-panel" id="e_inflections_suggest" data-kind="inflections" data-prefix="e"></div>
               </div>
               <div class="field"><label for="e_context_text">Context text</label><textarea id="e_context_text"></textarea></div>
               <div class="field" id="e_grammar_rule_field" style="display:none">
@@ -173,8 +186,12 @@
 
         <div>
           <div class="panel panel-pad">
-            <h3 style="font-size:13px; margin-bottom:12px;">Audio</h3>
+            <div class="field-label-row" style="margin-bottom:12px;">
+              <h3 style="font-size:13px;">Audio</h3>
+              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_tts_suggest">Suggest</button>
+            </div>
             <div id="noteAudioNone" class="inline-note">No audio attached.</div>
+            <div class="suggest-panel" id="e_tts_suggest" data-kind="tts" data-prefix="e"></div>
             <div id="noteAudioPlayer" style="display:none">
               <div class="audio-player">
                 <button class="play-btn" id="audioPlayBtn" type="button">▶</button>
@@ -291,15 +308,28 @@
           <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
           <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>
           <div class="field" id="c_lemma_field"><label for="c_lemma">Lemma</label><input id="c_lemma" type="text"></div>
-          <div class="field" id="c_transcription_field"><label for="c_transcription">Transcription</label><input id="c_transcription" type="text"></div>
+          <div class="field" id="c_transcription_field">
+            <div class="field-label-row"><label for="c_transcription">Transcription</label>
+              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_ipa_suggest">Suggest pronunciations</button>
+            </div>
+            <input id="c_transcription" type="text">
+            <div class="suggest-panel" id="c_ipa_suggest" data-kind="ipa" data-prefix="c"></div>
+          </div>
           <div class="field">
-            <label>Translations</label>
+            <div class="field-label-row"><label>Translations</label>
+              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_translations_suggest">Suggest translations</button>
+            </div>
             <div id="c_translations_list" class="translation-list"></div>
             <button type="button" class="btn-ghost" id="c_add_translation">+ Add translation</button>
+            <div class="suggest-panel" id="c_translations_suggest" data-kind="translations" data-prefix="c"></div>
           </div>
           <div class="field" id="c_inflections_field" style="display:none">
-            <label>Inflections</label>
+            <div class="field-label-row"><label>Inflections</label>
+              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_inflections_suggest">Look up paradigm</button>
+            </div>
             <div id="c_inflections_fields" class="inflection-fields"></div>
+            <p class="inline-note">Different providers shape this differently — copy whichever form matches, this never auto-fills.</p>
+            <div class="suggest-panel" id="c_inflections_suggest" data-kind="inflections" data-prefix="c"></div>
           </div>
           <div class="field"><label for="c_context_text">Context text</label><textarea id="c_context_text"></textarea></div>
           <div class="field" id="c_grammar_rule_field" style="display:none">

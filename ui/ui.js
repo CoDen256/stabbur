@@ -926,3 +926,359 @@ document.getElementById('ruleForm').addEventListener('submit', async (e) => {
     document.getElementById('ruleResult').textContent = `Error: ${JSON.stringify(body)}`;
   }
 });
+
+// ----------------------------------------------- smia enrichment panels --
+// Per-field "Suggest" accordions (smia-enrichment-panel change). Works
+// identically on the new-note form (c_*) and the note-detail form (e_*) —
+// every lookup reads only the form's current field values, never the note's
+// saved state, so it needs no note id. Manual-trigger only: nothing here
+// ever fires from an `input` listener, only from an explicit click.
+
+const ENRICH_LANG_NAMES = {
+  en: 'English', de: 'German', fr: 'French', es: 'Spanish',
+  nl: 'Dutch', sv: 'Swedish', pl: 'Polish', it: 'Italian',
+};
+function enrichLangLabel(code) { return ENRICH_LANG_NAMES[code] || code.toUpperCase(); }
+
+const SUGGEST_DEFAULT_LANGS = ['en', 'de'];
+
+let _enrichProvidersCache = null;
+async function fetchEnrichProviders() {
+  if (_enrichProvidersCache) return _enrichProvidersCache;
+  const { status, body } = await api('/api/enrich/providers');
+  _enrichProvidersCache = status === 200 ? body : {};
+  return _enrichProvidersCache;
+}
+
+function enrichEl(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
+}
+
+function enrichToast(msg) {
+  let stack = document.getElementById('enrichToastStack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'enrichToastStack';
+    stack.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:80;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(stack);
+  }
+  const t = enrichEl(`<div style="background:var(--text);color:var(--bg);padding:8px 13px;border-radius:var(--radius);font-size:12.5px;box-shadow:0 6px 18px -6px rgba(0,0,0,.3);">${escapeHtml(msg)}</div>`);
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+function enrichCopy(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => {});
+  enrichToast(`Copied "${text}"`);
+}
+
+// Exclusive within a language group (translations — one chosen translation
+// per target language) or the whole panel (ipa/tts — single-value field) —
+// never global, so picking an EN translation doesn't un-mark a DE one.
+function markSuggestUsed(btn) {
+  const scope = btn.closest('.lang-group') || btn.closest('.suggest-panel') || document;
+  scope.querySelectorAll('.use-btn.used').forEach((b) => { if (b !== btn) { b.classList.remove('used'); b.textContent = 'Use'; } });
+  btn.classList.add('used');
+  btn.textContent = '✓ Used';
+}
+
+function suggestFieldValue(prefix, field) {
+  const el = document.getElementById(`${prefix}_${field}`);
+  return el ? el.value.trim() : '';
+}
+
+function enrichRequestFields(kind, prefix, queryValue, lang) {
+  const sourceLang = suggestFieldValue(prefix, 'source_lang') || 'no';
+  if (kind === 'ipa') return { text: queryValue, lang: sourceLang };
+  if (kind === 'inflections') return { word: queryValue, lang: sourceLang };
+  if (kind === 'tts') return { text: queryValue, lang: sourceLang };
+  if (kind === 'translations') return { text: queryValue, from: sourceLang, to: lang };
+  return {};
+}
+
+async function enrichLookup(kind, provider, fields) {
+  return api(`/api/enrich/${kind}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...fields, provider }),
+  });
+}
+
+// One provider row with its own editable query + retry (ipa/translations/
+// tts — anything whose candidates are a flat list). `lang` is only used by
+// translations, to know which target language this row belongs to.
+function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang) {
+  const row = enrichEl(`
+    <div class="provider-row">
+      <div class="provider-head"><span class="provider-name">${escapeHtml(provider)}</span></div>
+      <div class="provider-query">
+        <input type="text" class="query-input" value="${escapeHtml(defaultQuery)}">
+        <button class="icon-btn retry-btn" type="button" title="Ask again with this input">↻</button>
+      </div>
+      <div class="provider-result"></div>
+    </div>
+  `);
+  const resultBox = row.querySelector('.provider-result');
+  const input = row.querySelector('.query-input');
+  const retryBtn = row.querySelector('.retry-btn');
+
+  async function fire(queryValue) {
+    resultBox.innerHTML = '<div class="suggest-skel"></div>';
+    const fields = enrichRequestFields(kind, prefix, queryValue, lang);
+    const { status, body } = await enrichLookup(kind, provider, fields);
+    if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) {
+      resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
+      return;
+    }
+    resultBox.innerHTML = '';
+    body.candidates.forEach((c) => resultBox.appendChild(renderCandidate(c, provider)));
+  }
+
+  retryBtn.addEventListener('click', () => {
+    retryBtn.classList.add('spinning');
+    setTimeout(() => retryBtn.classList.remove('spinning'), 650);
+    fire(input.value.trim());
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
+
+  fire(defaultQuery);
+  return row;
+}
+
+function renderIpaCandidate(prefix) {
+  return (c, providerName) => {
+    const value = c.ipa || c.phonemic || c.phonetic || '';
+    const r = enrichEl(`
+      <div class="candidate-row">
+        <span class="candidate-text">${escapeHtml(value)}</span>
+        <span class="candidate-meta">${escapeHtml(c.variety || '')}</span>
+        <span class="candidate-spacer"></span>
+        <button class="use-btn" type="button">Use</button>
+      </div>
+    `);
+    r.querySelector('.use-btn').addEventListener('click', (e) => {
+      const field = document.getElementById(`${prefix}_transcription`);
+      field.value = value;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      markSuggestUsed(e.target);
+      enrichToast(`Transcription set from ${providerName}`);
+    });
+    return r;
+  };
+}
+
+function renderTranslationCandidate(prefix, lang) {
+  return (c, providerName) => {
+    const r = enrichEl(`
+      <div class="candidate-row">
+        <span class="candidate-text">${escapeHtml(c.text)}</span>
+        ${c.context ? `<span class="candidate-meta">${escapeHtml(c.context)}</span>` : ''}
+        <span class="candidate-spacer"></span>
+        <button class="use-btn" type="button">Use</button>
+      </div>
+    `);
+    r.querySelector('.use-btn').addEventListener('click', (e) => {
+      const onChange = prefix === 'e' ? updateNoteJsonView : null;
+      addTranslationRow(`${prefix}_translations_list`, lang, c.text, onChange);
+      if (onChange) onChange();
+      markSuggestUsed(e.target);
+      enrichToast(`Added ${lang.toUpperCase()} translation from ${providerName}`);
+    });
+    return r;
+  };
+}
+
+function renderTtsCandidate(prefix) {
+  return (c, providerName) => {
+    const metaBits = [c.source, c.voice].filter(Boolean).join(' · ');
+    const idBit = c.sha256 ? `${c.sha256.slice(0, 12)}…` : '';
+    const r = enrichEl(`
+      <div class="candidate-row">
+        <span class="candidate-text">${escapeHtml(idBit)}</span>
+        <span class="candidate-meta">${escapeHtml(metaBits)}</span>
+        <span class="candidate-spacer"></span>
+        <button class="use-btn" type="button">Use</button>
+      </div>
+    `);
+    r.querySelector('.use-btn').addEventListener('click', async (e) => {
+      if (!currentNote) return;
+      const btn = e.target;
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '…';
+      const fetched = await api('/api/enrich/tts/use', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sha256: c.sha256 }),
+      });
+      if (fetched.status !== 200) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        enrichToast('Could not fetch that candidate’s audio');
+        return;
+      }
+      const patch = await api(`/api/notes/${currentNote.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio_blob: fetched.body.sha256, audio_sel_ms: null }),
+      });
+      btn.disabled = false;
+      if (patch.status === 200) {
+        currentNote = patch.body;
+        updateNoteJsonView();
+        updateNoAudioWarning();
+        renderAudioSection(currentNote);
+        markSuggestUsed(btn);
+        enrichToast(`Audio fetched from ${providerName} and stored as a blob`);
+      } else {
+        btn.textContent = originalLabel;
+      }
+    });
+    return r;
+  };
+}
+
+// Inflections stays read-only/copy-only by design (D-smia-enrichment-panel
+// fix #1) — providers disagree with each other and stabbur's own
+// PoS-keyed fields often enough that auto-fill would silently hide real
+// ambiguity. Each paradigm key/value is its own click-to-copy cell.
+function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
+  const wrap = enrichEl(`
+    <div class="provider-row">
+      <div class="provider-head"><span class="provider-name">${escapeHtml(provider)}</span></div>
+      <div class="provider-query">
+        <input type="text" class="query-input" value="${escapeHtml(defaultQuery)}">
+        <button class="icon-btn retry-btn" type="button" title="Ask again with this input">↻</button>
+      </div>
+      <div class="provider-result"></div>
+    </div>
+  `);
+  const resultBox = wrap.querySelector('.provider-result');
+  const input = wrap.querySelector('.query-input');
+  const retryBtn = wrap.querySelector('.retry-btn');
+
+  async function fire(queryValue) {
+    resultBox.innerHTML = '<div class="suggest-skel"></div>';
+    const { status, body } = await enrichLookup('inflections', provider, enrichRequestFields('inflections', prefix, queryValue));
+    if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) {
+      resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
+      return;
+    }
+    resultBox.innerHTML = '';
+    body.candidates.forEach((c) => {
+      const rows = Object.entries(c.paradigm || {}).map(([k, v]) => `
+        <div class="paradigm-row">
+          <span class="paradigm-key">${escapeHtml(k.replace(/_/g, ' '))}</span>
+          <span class="copy-cell" data-copy="${escapeHtml(v)}">${escapeHtml(v)}<span class="copy-ic">⧉</span></span>
+        </div>
+      `).join('');
+      const block = enrichEl(`
+        <div class="paradigm-candidate">
+          <div class="paradigm-candidate-head"><strong>${escapeHtml(c.lemma || '')}</strong> · ${escapeHtml(c.pos || '')}</div>
+          ${rows}
+        </div>
+      `);
+      block.querySelectorAll('.copy-cell').forEach((cell) => cell.addEventListener('click', () => enrichCopy(cell.dataset.copy)));
+      resultBox.appendChild(block);
+    });
+  }
+
+  retryBtn.addEventListener('click', () => {
+    retryBtn.classList.add('spinning');
+    setTimeout(() => retryBtn.classList.remove('spinning'), 650);
+    fire(input.value.trim());
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
+
+  fire(defaultQuery);
+  return wrap;
+}
+
+function buildTranslationsSuggestPanel(prefix, providers) {
+  const wrap = enrichEl(`
+    <div>
+      <div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>
+      <div class="lang-add-row">
+        <input type="text" class="new-lang-input" placeholder="add a language, e.g. fr" maxlength="8">
+        <button class="btn-ghost" type="button">+ Add language</button>
+      </div>
+      <div class="lang-groups"></div>
+    </div>
+  `);
+  const groupsEl = wrap.querySelector('.lang-groups');
+  const defaultQuery = suggestFieldValue(prefix, 'text');
+
+  function addLangGroup(lang) {
+    lang = lang.trim().toLowerCase();
+    if (!lang || groupsEl.querySelector(`[data-lang="${lang}"]`)) return;
+    const group = enrichEl(`
+      <div class="lang-group" data-lang="${lang}">
+        <div class="lang-group-head"><span class="lang-pill">${escapeHtml(lang)}</span>${escapeHtml(enrichLangLabel(lang))}</div>
+      </div>
+    `);
+    providers.forEach((p) => {
+      group.appendChild(buildEnrichProviderRow('translations', p, prefix, defaultQuery, renderTranslationCandidate(prefix, lang), lang));
+    });
+    groupsEl.appendChild(group);
+  }
+
+  SUGGEST_DEFAULT_LANGS.forEach(addLangGroup);
+
+  const addBtn = wrap.querySelector('button');
+  const input = wrap.querySelector('.new-lang-input');
+  addBtn.addEventListener('click', () => { addLangGroup(input.value); input.value = ''; input.focus(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click(); });
+
+  return wrap;
+}
+
+async function openSuggestPanel(panelEl) {
+  const kind = panelEl.dataset.kind;
+  const prefix = panelEl.dataset.prefix;
+  const btn = document.querySelector(`[data-suggest-toggle="${panelEl.id}"]`);
+  panelEl.classList.add('open');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  panelEl.innerHTML = '<div class="suggest-head"><span>Loading providers…</span></div>';
+
+  const catalog = await fetchEnrichProviders();
+  const providers = catalog[kind] || [];
+  panelEl.innerHTML = '';
+
+  if (providers.length === 0) {
+    panelEl.appendChild(enrichEl(`<div class="suggest-error">No providers currently configured for ${escapeHtml(kind)}.</div>`));
+    return;
+  }
+
+  if (kind === 'translations') {
+    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers));
+    return;
+  }
+  if (kind === 'inflections') {
+    panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>read-only — copy what you need</span></div>`));
+    const defaultQuery = suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
+    providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery)));
+    return;
+  }
+
+  panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>`));
+  const defaultQuery = suggestFieldValue(prefix, 'text');
+  const renderCandidate = kind === 'ipa' ? renderIpaCandidate(prefix) : renderTtsCandidate(prefix);
+  providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate)));
+}
+
+function closeSuggestPanel(panelEl) {
+  panelEl.classList.remove('open');
+  const btn = document.querySelector(`[data-suggest-toggle="${panelEl.id}"]`);
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+document.querySelectorAll('[data-suggest-toggle]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const panel = document.getElementById(btn.dataset.suggestToggle);
+    if (!panel) return;
+    if (panel.classList.contains('open')) closeSuggestPanel(panel);
+    else openSuggestPanel(panel);
+  });
+});
