@@ -1,0 +1,957 @@
+<!-- Design plan
+Color — "quenched steel" workspace: stone-neutral ground, a cool teal accent for
+interactive chrome (the hiss of hot metal in water), warm ember/amber reserved
+for status (draft/missing), kept strictly separate from the accent hue.
+  light bg #EEF0EC · surface #FFFFFF/#F5F6F2 · border #D7DAD2 · ink #1C201B
+  dark  bg #12161A · surface #181D21/#1E242A · border #2B333A · ink #E7EAEA
+  accent teal #2B6E73→#4FB2B8(dark) · good #3C8558 · warn/ember #BD6B2E · critical #B23B3B
+Type — a dictionary pairing: serif headword (the thing being looked up reads
+like a lexicon entry), system-ui sans for all chrome/labels, monospace for
+IPA strings, provider ids and paradigm tables (tabular-nums, real glyph
+coverage for phonetic symbols).
+Layout — not a separate suggestions rail: each enrichable field gets its own
+"Suggest" trigger that opens an accordion directly beneath that field, so the
+comparison grid always sits next to the thing it will fill in.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>huset — note editor · stabbur</title>
+<style>
+  :root {
+    --bg: #EEF0EC;
+    --surface: #FFFFFF;
+    --surface-2: #F5F6F2;
+    --surface-3: #ECEEE9;
+    --border: #D7DAD2;
+    --border-strong: #C3C7BD;
+    --ink: #1C201B;
+    --ink-muted: #5B6058;
+    --ink-faint: #8B9087;
+    --accent: #2B6E73;
+    --accent-strong: #1F555A;
+    --accent-soft: #DCEAEA;
+    --accent-ink: #0F3B3E;
+    --good: #3C8558;
+    --good-soft: #DFEFE4;
+    --warn: #BD6B2E;
+    --warn-soft: #F5E7D7;
+    --critical: #B23B3B;
+    --critical-soft: #F7E1E0;
+    --shadow: 0 1px 2px rgba(28,32,27,0.06), 0 6px 20px -8px rgba(28,32,27,0.18);
+    --radius: 7px;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161A;
+    --surface: #181D21;
+    --surface-2: #1E242A;
+    --surface-3: #232A30;
+    --border: #2B333A;
+    --border-strong: #38424A;
+    --ink: #E7EAEA;
+    --ink-muted: #9AA3A6;
+    --ink-faint: #68747A;
+    --accent: #4FB2B8;
+    --accent-strong: #6FC7CC;
+    --accent-soft: rgba(79,178,184,0.14);
+    --accent-ink: #BDEBEE;
+    --good: #5FBE85;
+    --good-soft: rgba(95,190,133,0.14);
+    --warn: #E08A4C;
+    --warn-soft: rgba(224,138,76,0.14);
+    --critical: #E2685F;
+    --critical-soft: rgba(226,104,95,0.14);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px -10px rgba(0,0,0,0.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161A; --surface: #181D21; --surface-2: #1E242A; --surface-3: #232A30;
+      --border: #2B333A; --border-strong: #38424A;
+      --ink: #E7EAEA; --ink-muted: #9AA3A6; --ink-faint: #68747A;
+      --accent: #4FB2B8; --accent-strong: #6FC7CC; --accent-soft: rgba(79,178,184,0.14); --accent-ink: #BDEBEE;
+      --good: #5FBE85; --good-soft: rgba(95,190,133,0.14);
+      --warn: #E08A4C; --warn-soft: rgba(224,138,76,0.14);
+      --critical: #E2685F; --critical-soft: rgba(226,104,95,0.14);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px -10px rgba(0,0,0,0.5);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); color: var(--accent-ink); }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .skip { position: sticky; top: 0; z-index: 40; }
+
+  /* ---------------------------------------------------------- top bar -- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 12px 22px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .crumb { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink-muted); }
+  .crumb .sep { color: var(--ink-faint); }
+  .crumb .here { color: var(--ink); font-weight: 600; }
+  .wordmark {
+    font-family: var(--serif); font-size: 15px; font-weight: 700;
+    letter-spacing: 0.01em; color: var(--ink);
+  }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .theme-toggle {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border-strong); background: var(--surface-2);
+    border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 12.5px;
+  }
+  .theme-toggle:hover { border-color: var(--accent); }
+
+  /* ---------------------------------------------------------- layout -- */
+  .stage { max-width: 1180px; margin: 0 auto; padding: 28px 22px 80px; }
+  .page-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 18px; margin-bottom: 22px;
+  }
+  .headword-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .headword { font-family: var(--serif); font-size: 34px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+  .headword-meta { font-family: var(--mono); font-size: 13px; color: var(--ink-muted); }
+  .pos-tag {
+    font-family: var(--sans); font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--accent-ink); background: var(--accent-soft);
+    padding: 3px 9px; border-radius: 999px;
+  }
+  .page-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    border-radius: var(--radius); border: 1px solid var(--border-strong);
+    background: var(--surface); color: var(--ink); padding: 8px 14px;
+    font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--ink-muted); }
+  .btn-ghost:hover { color: var(--ink); background: var(--surface-2); }
+  .btn-sm { padding: 5px 10px; font-size: 12.5px; }
+  .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .btn:hover[disabled] { border-color: var(--border-strong); }
+
+  .suggest-btn {
+    border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft);
+  }
+  .suggest-btn:hover { background: var(--accent); color: #fff; }
+  .suggest-btn[aria-expanded="true"] { background: var(--accent); color: #fff; }
+
+  .grid-2 { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 20px; align-items: start; }
+  @media (max-width: 880px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .panel-pad { padding: 20px; }
+  .panel + .panel { margin-top: 18px; }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .field-row.single { grid-template-columns: 1fr; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  label {
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.055em;
+    color: var(--ink-muted);
+  }
+  input[type="text"], textarea, select {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 11px; font-size: 14.5px; color: var(--ink);
+  }
+  input[type="text"]:focus, textarea:focus, select:focus { background: var(--surface); border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 54px; font-family: var(--sans); }
+  .mono-input { font-family: var(--mono); }
+
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* ------------------------------------------------------- translations -- */
+  .translation-list { display: flex; flex-direction: column; gap: 8px; }
+  .translation-row {
+    display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; align-items: center;
+    padding: 2px 0;
+  }
+  .translation-row .t-lang {
+    font-family: var(--mono); font-size: 12px; text-align: center; text-transform: uppercase;
+    background: var(--surface-3); border-radius: 5px; padding: 7px 4px; color: var(--ink-muted);
+  }
+  .translation-row.new-row { animation: rowIn 420ms ease both; }
+  @keyframes rowIn {
+    from { opacity: 0; transform: translateY(-4px); background: var(--good-soft); }
+    60%  { background: var(--good-soft); }
+    to   { opacity: 1; transform: translateY(0); background: transparent; }
+  }
+
+  /* --------------------------------------------------- suggestion panel -- */
+  .suggestions {
+    overflow: hidden; max-height: 0; opacity: 0;
+    transition: max-height 320ms ease, opacity 220ms ease, margin 320ms ease;
+    margin-top: 0;
+  }
+  .suggestions.open { max-height: 2400px; opacity: 1; margin-top: 12px; }
+  .suggestions-inner {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+    padding: 4px;
+  }
+  .suggestions-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 11px 7px;
+  }
+  .suggestions-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-muted); }
+  .suggestions-sub { font-size: 12px; color: var(--ink-faint); }
+
+  .provider-row {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 10px 12px; margin: 5px; opacity: 0; transform: translateY(4px);
+    animation: rowArrive 360ms ease forwards;
+  }
+  @keyframes rowArrive { to { opacity: 1; transform: translateY(0); } }
+  .provider-row.unavailable { background: var(--surface-3); opacity: 0.72 !important; transform: none !important; animation: none; }
+
+  .provider-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .provider-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); flex-shrink: 0; }
+  .provider-dot.live { background: var(--good); }
+  .provider-name { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+  .provider-note { font-size: 12px; color: var(--ink-faint); margin-left: auto; }
+
+  .provider-query {
+    display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  }
+  .provider-query input {
+    flex: 1; font-family: var(--mono); font-size: 13px; padding: 6px 9px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px;
+  }
+  .icon-btn {
+    width: 28px; height: 28px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    border-radius: 5px; border: 1px solid var(--border-strong); background: var(--surface);
+    cursor: pointer; font-size: 13px;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .icon-btn.spinning { animation: spin 700ms linear; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .provider-result { margin-top: 9px; }
+  .candidate-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-top: 1px dashed var(--border);
+  }
+  .candidate-row:first-child { border-top: none; padding-top: 0; }
+  .candidate-text { font-family: var(--mono); font-size: 14.5px; }
+  .candidate-variety {
+    font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .candidate-spacer { flex: 1; }
+
+  .use-btn {
+    border: 1px solid var(--good); color: var(--good); background: transparent;
+    border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+    cursor: pointer; flex-shrink: 0;
+  }
+  .use-btn:hover { background: var(--good); color: #fff; }
+  .use-btn.used { background: var(--good); color: #fff; }
+
+  .error-text { font-size: 13px; color: var(--critical); }
+  .skel-line {
+    height: 13px; border-radius: 4px; width: 70%;
+    background: linear-gradient(90deg, var(--surface-3) 25%, var(--border) 37%, var(--surface-3) 63%);
+    background-size: 400% 100%; animation: shimmer 1.3s ease infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+  .play-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-strong);
+    background: var(--surface); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0; font-size: 12px;
+  }
+  .play-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .play-btn.playing { background: var(--accent); border-color: var(--accent); color: #fff; animation: pulse 900ms ease infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 var(--accent-soft); } 50% { box-shadow: 0 0 0 6px var(--accent-soft); } }
+
+  /* ------------------------------------------------------- paradigm grid -- */
+  .paradigm-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13.5px; }
+  .paradigm-table th {
+    text-align: left; font-family: var(--sans); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; padding: 4px 10px 6px 0;
+  }
+  .paradigm-table td { padding: 2px 10px 2px 0; }
+  .copy-cell {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid transparent; border-radius: 5px; padding: 4px 8px;
+    cursor: pointer; background: var(--surface);
+  }
+  .copy-cell:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .copy-cell .copy-ic { opacity: 0; font-size: 11px; color: var(--accent); transition: opacity 100ms; }
+  .copy-cell:hover .copy-ic { opacity: 1; }
+  .paradigm-conflict { font-size: 11px; color: var(--warn); margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+
+  .inflection-grid { display: grid; grid-template-columns: 0.65fr 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 620px) { .inflection-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .lang-add-row { display: flex; gap: 8px; padding: 0 7px 9px; }
+  .lang-add-row input { flex: 1; font-size: 13px; padding: 6px 9px; }
+  .lang-group { margin: 2px 2px 12px; padding-top: 2px; border-top: 1px solid var(--border); }
+  .lang-group:first-of-type { border-top: none; }
+  .lang-group-head {
+    display: flex; align-items: center; gap: 8px; padding: 10px 9px 2px;
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted);
+  }
+  .lang-pill {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0;
+    background: var(--accent-soft); color: var(--accent-ink); border-radius: 4px; padding: 2px 6px;
+  }
+
+  .spark-ic { display: inline-flex; width: 12px; height: 12px; flex-shrink: 0; }
+  .spark-ic svg { width: 100%; height: 100%; display: block; }
+  .btn .spark-ic { position: relative; top: 0.5px; }
+
+  /* ----------------------------------------------------------- audio -- */
+  .audio-row { display: flex; align-items: center; gap: 10px; }
+  .audio-empty { font-size: 13px; color: var(--ink-faint); padding: 14px 0; text-align: center; border: 1px dashed var(--border); border-radius: 7px; }
+  .audio-attached {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--good-soft); border-radius: 7px; border: 1px solid transparent;
+  }
+  .audio-attached-text { font-size: 12.5px; color: var(--ink); }
+  .audio-attached-text .src { color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; }
+
+  /* ---------------------------------------------------------- footer -- */
+  .big-suggest {
+    position: fixed; bottom: 22px; right: 26px; z-index: 30;
+    padding: 12px 20px; border-radius: 999px; box-shadow: 0 10px 30px -8px rgba(0,0,0,0.3);
+    font-size: 14px;
+  }
+
+  .toast-stack { position: fixed; bottom: 22px; left: 26px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 7px;
+    font-size: 13px; box-shadow: var(--shadow); animation: toastIn 180ms ease, toastOut 220ms ease 1.8s forwards;
+  }
+  :root[data-theme="dark"] .toast, @media (prefers-color-scheme: dark) { }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(6px); } }
+
+  .hint {
+    font-size: 12px; color: var(--ink-faint); margin-top: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar skip">
+  <div class="crumb">
+    <span class="wordmark">stabbur</span>
+    <span class="sep">/</span>
+    <span>notes</span>
+    <span class="sep">/</span>
+    <span class="here">huset</span>
+  </div>
+  <div class="topbar-right">
+    <span class="hint">design mock — enrichment panel, fan-out suggestions from smia</span>
+    <button class="theme-toggle" id="themeToggle" type="button">
+      <span id="themeIcon">◐</span> <span id="themeLabel">Auto theme</span>
+    </button>
+  </div>
+</div>
+
+<div class="stage">
+
+  <div class="page-head">
+    <div class="headword-row">
+      <div class="headword">huset</div>
+      <span class="pos-tag">substantiv · n.</span>
+      <span class="headword-meta">lemma: hus · no → en · draft</span>
+    </div>
+    <div class="page-actions">
+      <button class="btn" id="suggestAllBtn" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Suggest everything</button>
+      <button class="btn btn-primary" type="button">Save</button>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- ============================================================ LEFT -->
+    <div>
+      <div class="panel panel-pad">
+        <div class="field-row">
+          <div class="field">
+            <label for="f_text">Text (source language)</label>
+            <input type="text" id="f_text" value="huset">
+          </div>
+          <div class="field">
+            <label for="f_lemma">Lemma</label>
+            <input type="text" id="f_lemma" value="hus">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="f_type">Type</label>
+            <select id="f_type"><option selected>word</option><option>expression</option><option>listening</option></select>
+          </div>
+          <div class="field">
+            <label for="f_pos">Part of speech</label>
+            <select id="f_pos"><option selected>substantiv</option><option>verb</option><option>adjektiv</option></select>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- ------------------------------------------------- TRANSCRIPTION -->
+        <div class="field">
+          <div class="field-label-row">
+            <label for="f_ipa">Transcription</label>
+            <button class="btn btn-sm suggest-btn" data-toggle="panel-ipa" aria-expanded="false" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Suggest pronunciations</button>
+          </div>
+          <input type="text" id="f_ipa" class="mono-input" placeholder="/…/" value="">
+          <div class="suggestions" id="panel-ipa" data-kind="ipa"></div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- -------------------------------------------------- TRANSLATIONS -->
+        <div class="field">
+          <div class="field-label-row">
+            <label>Translations</label>
+            <button class="btn btn-sm suggest-btn" data-toggle="panel-translations" aria-expanded="false" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Suggest translations</button>
+          </div>
+          <div class="translation-list" id="translationList">
+            <div class="translation-row"><span class="t-lang">no</span><input type="text" value="huset" readonly style="background:transparent;border-color:transparent;padding-left:0;color:var(--ink-faint);"><span></span></div>
+          </div>
+          <div class="suggestions" id="panel-translations" data-kind="translations"></div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- --------------------------------------------------- INFLECTIONS -->
+        <div class="field">
+          <div class="field-label-row">
+            <label>Inflections</label>
+            <button class="btn btn-sm suggest-btn" data-toggle="panel-inflections" aria-expanded="false" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Look up paradigm</button>
+          </div>
+          <div class="inflection-grid">
+            <div class="field" style="margin-bottom:0;"><label style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink-faint);">Article</label><input type="text" class="mono-input" id="f_infl_article" placeholder="et"></div>
+            <div class="field" style="margin-bottom:0;"><label style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink-faint);">Sg. indef.</label><input type="text" class="mono-input" id="f_infl_sg_indef" placeholder="hus"></div>
+            <div class="field" style="margin-bottom:0;"><label style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink-faint);">Sg. def.</label><input type="text" class="mono-input" id="f_infl_sg_def" placeholder="huset"></div>
+            <div class="field" style="margin-bottom:0;"><label style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink-faint);">Pl. indef.</label><input type="text" class="mono-input" id="f_infl_pl_indef" placeholder="hus"></div>
+            <div class="field" style="margin-bottom:0;"><label style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink-faint);">Pl. def.</label><input type="text" class="mono-input" id="f_infl_pl_def" placeholder="husene / husa"></div>
+          </div>
+          <p class="hint">Different providers shape this differently — the panel below is read-only, for fast copy-paste into the fields above, not auto-fill.</p>
+          <div class="suggestions" id="panel-inflections" data-kind="inflections"></div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="field">
+          <label for="f_context">Context text</label>
+          <textarea id="f_context" placeholder="— none —"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========================================================== RIGHT -->
+    <div>
+      <div class="panel panel-pad">
+        <div class="field-label-row" style="margin-bottom:10px;">
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-muted);margin:0;">Audio</h3>
+          <button class="btn btn-sm suggest-btn" data-toggle="panel-tts" aria-expanded="false" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Suggest</button>
+        </div>
+        <div id="audioState"><div class="audio-empty">No audio attached.</div></div>
+        <div class="suggestions" id="panel-tts" data-kind="tts"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<button class="btn btn-primary big-suggest" id="suggestAllFab" type="button"><span class="spark-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9-5.9-1.9 5.9-1.9L12 2.2z"/></svg></span> Suggest everything</button>
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+// ----------------------------------------------------------------------
+// Mock fixtures. Shapes mirror smia's real response contracts (tun/docs/
+// 06-smia.md): translations -> single {provider,text}; ipa/inflections/tts
+// -> {provider, candidates:[...]}. "Not configured" rows mirror the
+// registry's dynamic `available` exclusion (a provider can vanish from the
+// catalog with no code change once its credential/dataset isn't there).
+// ----------------------------------------------------------------------
+
+const DEFAULT_QUERY = { ipa: 'huset', translations: 'huset', tts: 'huset', inflections: 'hus' };
+
+function ipaLookup(query) {
+  const q = query.trim().toLowerCalled ? query : query; // no-op, keep literal
+  const known = {
+    hus:   [{ phonemic: '/hʉːs/', phonetic: '[hʉːs]', variety: 'bokmål, oslo' }],
+    huset: [], // the inflected surface form has no lexicon entry of its own
+  };
+  return known[query.toLowerCase()] ?? [];
+}
+
+const PROVIDERS = {
+  ipa: [
+    { name: 'nst',       live: true,  kind: 'lexicon-lookup' },
+    { name: 'kaikki',    live: true,  kind: 'wiktionary' },
+    { name: 'ordbokene', live: true,  kind: 'api' },
+    { name: 'wikipron',  live: true,  kind: 'dataset' },
+    { name: 'ipadict',   live: false, reason: 'no dataset imported' },
+  ],
+  translations: [
+    { name: 'google', live: true },
+    { name: 'bing',   live: true },
+    { name: 'deepl',  live: true },
+    { name: 'libretranslate', live: true },
+    { name: 'dictcc', live: false, reason: 'blocked by anti-bot loader' },
+  ],
+  tts: [
+    { name: 'kaikki',     live: true },
+    { name: 'forvo',      live: false, reason: 'no API key configured' },
+    { name: 'elevenlabs', live: false, reason: 'no API key configured' },
+    { name: 'filmot',     live: false, reason: 'no API key configured' },
+    { name: 'dictcc',     live: false, reason: 'blocked by anti-bot loader' },
+  ],
+  inflections: [
+    { name: 'ordbank', live: true },
+    { name: 'kaikki',  live: true },
+  ],
+};
+
+function fakeLatency() { return 380 + Math.random() * 650; }
+
+const TRANSLATION_DICT = {
+  en: { huset: 'the house', hus: 'house' },
+  de: { huset: 'das Haus', hus: 'Haus' },
+  fr: { huset: 'la maison', hus: 'maison' },
+  es: { huset: 'la casa', hus: 'casa' },
+};
+const LANG_NAMES = { en: 'English', de: 'German', fr: 'French', es: 'Spanish', nl: 'Dutch', sv: 'Swedish', pl: 'Polish', it: 'Italian' };
+function langLabel(code) { return LANG_NAMES[code] || code.toUpperCase(); }
+
+function resultFor(kind, provider, query, lang) {
+  if (kind === 'ipa') {
+    const table = {
+      nst:       { hus: [{ phonemic: '/hʉːs/', phonetic: '[hʉːs]', variety: 'bokmål · oslo' }], huset: [] },
+      kaikki:    { huset: [{ phonemic: '/ˈhʉːsə/', variety: 'wiktionary' }], hus: [{ phonemic: '/hʉːs/', variety: 'wiktionary' }] },
+      ordbokene: { huset: [{ phonetic: '[ˈhʉ̀sə]', variety: 'nob' }], hus: [{ phonetic: '[hʉːs]', variety: 'nob' }] },
+      wikipron:  { huset: [{ phonemic: '/hʉːsə/', variety: 'nb-no broad' }], hus: [{ phonemic: '/hʉːs/', variety: 'nb-no broad' }] },
+    };
+    return (table[provider] && table[provider][query.toLowerCase()]) || [];
+  }
+  if (kind === 'translations') {
+    const dict = TRANSLATION_DICT[lang] || {};
+    const t = dict[query.toLowerCase()];
+    return t ? [{ text: t }] : [];
+  }
+  if (kind === 'tts') {
+    const table = { kaikki: { huset: [{ sha256: '7c3e9a…f201', duration_ms: 640 }], hus: [{ sha256: 'b81fd2…ae90', duration_ms: 520 }] } };
+    return (table[provider] && table[provider][query.toLowerCase()]) || [];
+  }
+  return [];
+}
+
+function el(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
+}
+
+function showToast(msg) {
+  const stack = document.getElementById('toastStack');
+  const t = el(`<div class="toast">${msg}</div>`);
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 2100);
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+  showToast(`Copied “${text}”`);
+}
+
+// --------------------------------------------------------- panel builders --
+
+function buildProviderRow(kind, provider, fieldApplyFn, lang) {
+  if (!provider.live) {
+    return el(`
+      <div class="provider-row unavailable">
+        <div class="provider-head">
+          <span class="provider-dot"></span>
+          <span class="provider-name">${provider.name}</span>
+          <span class="provider-note">not configured — ${provider.reason}</span>
+        </div>
+      </div>
+    `);
+  }
+
+  const row = el(`
+    <div class="provider-row">
+      <div class="provider-head">
+        <span class="provider-dot live"></span>
+        <span class="provider-name">${provider.name}</span>
+      </div>
+      <div class="provider-query">
+        <input type="text" class="mono-input query-input" value="${DEFAULT_QUERY[kind]}">
+        <button class="icon-btn retry-btn" title="Ask again with this input" type="button">↻</button>
+      </div>
+      <div class="provider-result"></div>
+    </div>
+  `);
+
+  const resultBox = row.querySelector('.provider-result');
+  const input = row.querySelector('.query-input');
+  const retryBtn = row.querySelector('.retry-btn');
+
+  function renderCandidates(list, query) {
+    if (list.length === 0) {
+      resultBox.innerHTML = `<div class="error-text">No entry found for “${query}”.</div>`;
+      return;
+    }
+    if (kind === 'translations') {
+      resultBox.innerHTML = '';
+      list.forEach((c) => {
+        const r = el(`
+          <div class="candidate-row">
+            <span class="candidate-text">${c.text}</span>
+            <span class="candidate-spacer"></span>
+            <button class="use-btn" type="button">Use</button>
+          </div>
+        `);
+        r.querySelector('.use-btn').addEventListener('click', (e) => {
+          fieldApplyFn(c, provider.name, e.target, lang);
+        });
+        resultBox.appendChild(r);
+      });
+      return;
+    }
+    if (kind === 'tts') {
+      resultBox.innerHTML = '';
+      list.forEach((c) => {
+        const r = el(`
+          <div class="candidate-row">
+            <button class="play-btn" type="button">▶</button>
+            <span class="candidate-text">${c.duration_ms} ms</span>
+            <span class="candidate-variety">${c.sha256}</span>
+            <span class="candidate-spacer"></span>
+            <button class="use-btn" type="button">Use</button>
+          </div>
+        `);
+        r.querySelector('.play-btn').addEventListener('click', (e) => playBeep(e.target));
+        r.querySelector('.use-btn').addEventListener('click', (e) => fieldApplyFn(c, provider.name, e.target));
+        resultBox.appendChild(r);
+      });
+      return;
+    }
+    // ipa
+    resultBox.innerHTML = '';
+    list.forEach((c) => {
+      const label = c.phonemic || c.phonetic;
+      const r = el(`
+        <div class="candidate-row">
+          <span class="candidate-text">${label}</span>
+          <span class="candidate-variety">${c.variety || ''}</span>
+          <span class="candidate-spacer"></span>
+          <button class="use-btn" type="button">Use</button>
+        </div>
+      `);
+      r.querySelector('.use-btn').addEventListener('click', (e) => fieldApplyFn(c, provider.name, e.target));
+      resultBox.appendChild(r);
+    });
+  }
+
+  function fire(query) {
+    resultBox.innerHTML = `<div class="skel-line"></div>`;
+    setTimeout(() => renderCandidates(resultFor(kind, provider.name, query, lang), query), fakeLatency());
+  }
+
+  retryBtn.addEventListener('click', () => {
+    retryBtn.classList.add('spinning');
+    setTimeout(() => retryBtn.classList.remove('spinning'), 700);
+    fire(input.value.trim());
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
+
+  fire(input.value.trim());
+  return row;
+}
+
+function fieldApplyFactory(kind) {
+  if (kind === 'ipa') {
+    return (candidate, providerName, btn) => {
+      document.getElementById('f_ipa').value = candidate.phonemic || candidate.phonetic;
+      flashField('f_ipa');
+      markUsed(btn);
+      showToast(`Transcription set from ${providerName}`);
+    };
+  }
+  if (kind === 'translations') {
+    return (candidate, providerName, btn, lang) => {
+      const list = document.getElementById('translationList');
+      const row = el(`
+        <div class="translation-row new-row">
+          <span class="t-lang">${lang}</span>
+          <input type="text" value="${candidate.text}">
+          <button class="icon-btn" title="Remove" type="button">✕</button>
+        </div>
+      `);
+      row.querySelector('.icon-btn').addEventListener('click', () => row.remove());
+      list.appendChild(row);
+      markUsed(btn);
+      showToast(`Added ${lang.toUpperCase()} translation from ${providerName}`);
+    };
+  }
+  if (kind === 'tts') {
+    return (candidate, providerName, btn) => {
+      document.getElementById('audioState').innerHTML = `
+        <div class="audio-attached">
+          <button class="play-btn" type="button">▶</button>
+          <div class="audio-attached-text">attached from <strong>${providerName}</strong><br><span class="src">blob/${candidate.sha256.replace('…','1a2b3c4d5e')}</span></div>
+        </div>`;
+      document.querySelector('#audioState .play-btn').addEventListener('click', (e) => playBeep(e.target));
+      markUsed(btn);
+      showToast(`Audio fetched from ${providerName} and stored as a blob`);
+    };
+  }
+  return () => {};
+}
+
+function markUsed(btn) {
+  // Exclusive within a language group (translations) or the whole panel
+  // (ipa/tts, where only one candidate can be "the" value) — never global,
+  // so picking an EN translation doesn't un-mark a DE one.
+  const scope = btn.closest('.lang-group') || btn.closest('.suggestions') || document;
+  scope.querySelectorAll('.use-btn.used').forEach((b) => { if (b !== btn) { b.classList.remove('used'); b.textContent = 'Use'; } });
+  btn.classList.add('used');
+  btn.textContent = '✓ Used';
+}
+
+function flashField(id) {
+  const f = document.getElementById(id);
+  f.style.transition = 'none';
+  f.style.background = 'var(--good-soft)';
+  requestAnimationFrame(() => {
+    f.style.transition = 'background 700ms ease';
+    f.style.background = '';
+  });
+}
+
+let audioCtx;
+function playBeep(btn) {
+  btn.classList.add('playing');
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 440;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.08, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.5);
+  } catch (e) { /* audio unavailable in this context — silent no-op */ }
+  setTimeout(() => btn.classList.remove('playing'), 650);
+}
+
+// ------------------------------------------------------- inflections panel --
+
+function buildInflectionsPanel() {
+  const providerData = {
+    ordbank: { source: 'Norsk Ordbank', rows: [
+      ['artikkel', 'et'], ['sg. ubest.', 'hus'], ['sg. best.', 'huset'], ['pl. ubest.', 'hus'], ['pl. best.', 'husene'],
+    ] },
+    kaikki: { source: 'Wiktionary (kaikki.org)', rows: [
+      ['artikkel', '—'], ['sg. ubest.', 'hus'], ['sg. best.', 'huset'], ['pl. ubest.', 'hus'], ['pl. best.', 'husa'],
+    ] },
+  };
+
+  const wrap = el(`
+    <div class="suggestions-inner">
+      <div class="suggestions-head">
+        <span class="suggestions-title">Paradigm by provider</span>
+        <span class="suggestions-sub">click a form to copy it</span>
+      </div>
+    </div>
+  `);
+
+  Object.entries(providerData).forEach(([name, data], i) => {
+    const row = el(`
+      <div class="provider-row" style="animation-delay:${i * 90}ms">
+        <div class="provider-head">
+          <span class="provider-dot live"></span>
+          <span class="provider-name">${name}</span>
+          <span class="provider-note">${data.source}</span>
+        </div>
+        <table class="paradigm-table" style="margin-top:8px;">
+          <tr>${data.rows.map(([label]) => `<th>${label}</th>`).join('')}</tr>
+          <tr>${data.rows.map(([, form]) => `<td></td>`).join('')}</tr>
+        </table>
+      </div>
+    `);
+    const cells = row.querySelectorAll('td');
+    data.rows.forEach(([, form], idx) => {
+      if (form === '—') { cells[idx].innerHTML = `<span style="color:var(--ink-faint);padding:4px 8px;display:inline-block;">—</span>`; return; }
+      const cell = el(`<span class="copy-cell">${form}<span class="copy-ic">⧉</span></span>`);
+      cell.addEventListener('click', () => copyToClipboard(form));
+      cells[idx].appendChild(cell);
+    });
+    wrap.appendChild(row);
+  });
+
+  wrap.appendChild(el(`
+    <div class="paradigm-conflict">⚠ plural definite disagrees — ordbank says “husene”, kaikki says “husa”. Pick the one that matches your dialect/register.</div>
+  `));
+
+  return wrap;
+}
+
+// -------------------------------------------------------- translations panel --
+
+const TRANSLATIONS_DEFAULT_LANGS = ['en', 'de'];
+
+function buildTranslationsPanel() {
+  const wrap = el(`
+    <div class="suggestions-inner">
+      <div class="suggestions-head">
+        <span class="suggestions-title">Suggest per target language</span>
+        <span class="suggestions-sub">editable per-provider — retry with a different input</span>
+      </div>
+      <div class="lang-add-row">
+        <input type="text" class="mono-input" id="newLangInput" placeholder="add a language, e.g. fr" maxlength="8">
+        <button class="btn btn-sm" id="addLangBtn" type="button">+ Add language</button>
+      </div>
+      <div id="langGroups"></div>
+    </div>
+  `);
+
+  const groupsEl = wrap.querySelector('#langGroups');
+
+  function addLangGroup(lang) {
+    lang = lang.trim().toLowerCase();
+    if (!lang || groupsEl.querySelector(`[data-lang="${lang}"]`)) return;
+    const group = el(`
+      <div class="lang-group" data-lang="${lang}">
+        <div class="lang-group-head"><span class="lang-pill">${lang}</span>${langLabel(lang)}</div>
+      </div>
+    `);
+    const apply = fieldApplyFactory('translations');
+    PROVIDERS.translations.forEach((p, i) => {
+      const row = buildProviderRow('translations', p, apply, lang);
+      row.style.animationDelay = `${i * 70}ms`;
+      group.appendChild(row);
+    });
+    groupsEl.appendChild(group);
+  }
+
+  TRANSLATIONS_DEFAULT_LANGS.forEach(addLangGroup);
+
+  const addBtn = wrap.querySelector('#addLangBtn');
+  const input = wrap.querySelector('#newLangInput');
+  addBtn.addEventListener('click', () => { addLangGroup(input.value); input.value = ''; input.focus(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click(); });
+
+  return wrap;
+}
+
+// ------------------------------------------------------------- open/close --
+
+function openPanel(id) {
+  const panel = document.getElementById(id);
+  const kind = panel.dataset.kind;
+  const btn = document.querySelector(`[data-toggle="${id}"]`);
+  const alreadyBuilt = panel.dataset.built === '1';
+
+  panel.classList.add('open');
+  btn.setAttribute('aria-expanded', 'true');
+
+  if (alreadyBuilt) return;
+  panel.dataset.built = '1';
+
+  if (kind === 'inflections') {
+    panel.appendChild(buildInflectionsPanel());
+    return;
+  }
+  if (kind === 'translations') {
+    panel.appendChild(buildTranslationsPanel());
+    return;
+  }
+
+  const inner = el(`
+    <div class="suggestions-inner">
+      <div class="suggestions-head">
+        <span class="suggestions-title">${PROVIDERS[kind].filter(p=>p.live).length} providers configured</span>
+        <span class="suggestions-sub">editable per-provider — retry with a different input</span>
+      </div>
+    </div>
+  `);
+  panel.appendChild(inner);
+  const apply = fieldApplyFactory(kind);
+  PROVIDERS[kind].forEach((p, i) => {
+    const row = buildProviderRow(kind, p, apply);
+    row.style.animationDelay = `${i * 70}ms`;
+    inner.appendChild(row);
+  });
+}
+
+function closePanel(id) {
+  document.getElementById(id).classList.remove('open');
+  document.querySelector(`[data-toggle="${id}"]`).setAttribute('aria-expanded', 'false');
+}
+
+document.querySelectorAll('[data-toggle]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.toggle;
+    const panel = document.getElementById(id);
+    if (panel.classList.contains('open')) closePanel(id); else openPanel(id);
+  });
+});
+
+function suggestEverything() {
+  ['panel-ipa', 'panel-translations', 'panel-inflections', 'panel-tts'].forEach((id, i) => {
+    setTimeout(() => openPanel(id), i * 120);
+  });
+}
+document.getElementById('suggestAllBtn').addEventListener('click', suggestEverything);
+document.getElementById('suggestAllFab').addEventListener('click', suggestEverything);
+
+// ------------------------------------------------------------- theme toggle --
+
+(function themeToggle() {
+  const btn = document.getElementById('themeToggle');
+  const icon = document.getElementById('themeIcon');
+  const label = document.getElementById('themeLabel');
+  const states = [null, 'dark', 'light'];
+  let i = 0;
+  btn.addEventListener('click', () => {
+    i = (i + 1) % states.length;
+    const v = states[i];
+    if (v) document.documentElement.setAttribute('data-theme', v);
+    else document.documentElement.removeAttribute('data-theme');
+    icon.textContent = v === 'dark' ? '●' : v === 'light' ? '○' : '◐';
+    label.textContent = v === 'dark' ? 'Dark' : v === 'light' ? 'Light' : 'Auto theme';
+  });
+})();
+</script>
+</body>
+</html>
