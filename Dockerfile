@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY app.py auth.py blob_storage.py .
+COPY app.py auth.py blob_storage.py smia_client.py .
 COPY db/ ./db/
 COPY routes/ ./routes/
 COPY ui/ ./ui/
