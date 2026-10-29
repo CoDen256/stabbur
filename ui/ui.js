@@ -946,8 +946,11 @@ let _enrichProvidersCache = null;
 async function fetchEnrichProviders() {
   if (_enrichProvidersCache) return _enrichProvidersCache;
   const { status, body } = await api('/api/enrich/providers');
-  _enrichProvidersCache = status === 200 ? body : {};
-  return _enrichProvidersCache;
+  // Only a successful fetch is cached — a transient smia outage must not
+  // permanently disable suggestions for the rest of the page's lifetime;
+  // the next panel open retries instead of reusing a stale empty catalog.
+  if (status === 200) _enrichProvidersCache = body;
+  return status === 200 ? body : {};
 }
 
 function enrichEl(html) {
@@ -989,8 +992,19 @@ function suggestFieldValue(prefix, field) {
   return el ? el.value.trim() : '';
 }
 
+// stabbur's `source_lang` is deliberately language-agnostic (CLAUDE.md) and
+// defaults to the macro-language code "no" for Norwegian notes; smia's
+// providers expect the specific written-standard code "nb" (bokmål) — "no"
+// isn't reliably recognized by them (confirmed live: dict.cc's /tts accepts
+// "nb", not "no"). This maps at the request boundary only — the note's own
+// stored source_lang is untouched.
+function smiaLangCode(sourceLang) {
+  if (sourceLang === 'no') return 'nb';
+  return sourceLang || 'nb';
+}
+
 function enrichRequestFields(kind, prefix, queryValue, lang) {
-  const sourceLang = suggestFieldValue(prefix, 'source_lang') || 'no';
+  const sourceLang = smiaLangCode(suggestFieldValue(prefix, 'source_lang'));
   if (kind === 'ipa') return { text: queryValue, lang: sourceLang };
   if (kind === 'inflections') return { word: queryValue, lang: sourceLang };
   if (kind === 'tts') return { text: queryValue, lang: sourceLang };
