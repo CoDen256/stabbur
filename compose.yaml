@@ -33,10 +33,11 @@ services:
       STABBUR_AUTH_TOKEN: ${STABBUR_AUTH_TOKEN:-changeme}
       FLASK_DEBUG: "0"
       # smia-enrichment-panel: the note editor's "Suggest" panels proxy
-      # through this backend to smia — "smia-backend" is the alias smia's
-      # own compose.yaml/docker-compose.yml publishes on tun-shared
-      # (plain "backend" would collide with this very service's own name
-      # on that shared network, same D94 problem the postgres services hit).
+      # through this backend to smia — "smia-backend" is smia's own service
+      # name in its docker-compose.yml, deliberately not plain "backend"
+      # (which would collide with this very service's own name once both
+      # are merged under tun's `include:`, same D94 problem the postgres
+      # services hit).
       SMIA_BASE_URL: ${SMIA_BASE_URL:-http://smia-backend:5055}
       SMIA_AUTH_TOKEN: ${SMIA_AUTH_TOKEN:-changeme}
     volumes:
