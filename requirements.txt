@@ -5,3 +5,4 @@ psycopg2-binary==2.9.10
 pytest==8.3.4
 requests==2.34.2
 SQLAlchemy==2.0.36
+yt-dlp==2024.12.13

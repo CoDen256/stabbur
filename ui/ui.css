@@ -292,6 +292,10 @@ pre.json {
 .provider-name { font-family: ui-monospace, monospace; font-weight: 600; font-size: 12.5px; }
 .provider-query { display: flex; gap: 6px; margin-top: 7px; }
 .provider-query input { flex: 1; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.manual-link-state { padding: 6px 0; }
+.manual-link-paste { display: flex; gap: 6px; margin-top: 8px; }
+.manual-link-paste input { flex: 1; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.manual-link-status { margin-top: 6px; color: var(--err); }
 .icon-btn {
   width: 27px; height: 27px; flex: none; display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-elevated); cursor: pointer; padding: 0;

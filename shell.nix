@@ -3,6 +3,7 @@ pkgs.mkShell {
   buildInputs = with pkgs; [
     python312
     zlib
+    ffmpeg
   ];
   shellHook = ''
     export LD_LIBRARY_PATH=${pkgs.zlib}/lib:$LD_LIBRARY_PATH

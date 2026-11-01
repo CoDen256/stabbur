@@ -1081,6 +1081,70 @@ async function enrichLookup(kind, provider, fields) {
 // One provider row with its own editable query + retry (ipa/translations/
 // tts — anything whose candidates are a flat list). `lang` is only used by
 // translations, to know which target language this row belongs to.
+// smia's forvo/filmot /tts adapters have no API — they always answer
+// `{candidates: [], url}`, a link to check by hand (manual-link-audio-
+// capture). This maps a provider name to the stabbur route that turns a
+// pasted-back result into a real blob.
+const MANUAL_LINK_CAPTURE_ROUTES = {
+  forvo: '/api/enrich/manual-link/forvo',
+  filmot: '/api/enrich/manual-link/filmot',
+};
+
+const MANUAL_LINK_PASTE_PLACEHOLDERS = {
+  forvo: 'Paste the direct audio file URL you found there',
+  filmot: 'Paste the YouTube URL + timecode you found there',
+};
+
+function renderManualLinkState(provider, url, prefix) {
+  const captureRoute = MANUAL_LINK_CAPTURE_ROUTES[provider];
+  const wrap = enrichEl(`
+    <div class="manual-link-state">
+      <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="btn-ghost">Open ${escapeHtml(provider)} ↗</a>
+      <div class="manual-link-paste">
+        <input type="text" class="manual-link-input" placeholder="${escapeHtml(MANUAL_LINK_PASTE_PLACEHOLDERS[provider] || 'Paste the link you found there')}">
+        <button class="use-btn" type="button">Fetch &amp; attach</button>
+      </div>
+      <div class="manual-link-status inline-note"></div>
+    </div>
+  `);
+  const input = wrap.querySelector('.manual-link-input');
+  const btn = wrap.querySelector('.use-btn');
+  const status = wrap.querySelector('.manual-link-status');
+
+  btn.addEventListener('click', async () => {
+    const pastedUrl = input.value.trim();
+    if (!pastedUrl || (prefix === 'e' && !currentNote)) return;
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    status.textContent = '';
+
+    const fetched = await api(captureRoute, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: pastedUrl }),
+    });
+    if (fetched.status !== 200 || !fetched.body || !fetched.body.sha256) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      status.textContent = (fetched.body && fetched.body.error) || 'Capture failed.';
+      return;
+    }
+
+    const attached = await attachAudioToNote(prefix, fetched.body.sha256, provider, null);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    if (attached) {
+      markSuggestUsed(btn);
+      enrichToast(`Audio captured from ${provider} — trim it below if needed`);
+    } else {
+      status.textContent = 'Could not attach the captured audio.';
+    }
+  });
+
+  return wrap;
+}
+
 function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang) {
   const row = enrichEl(`
     <div class="provider-row">
@@ -1100,6 +1164,13 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
     const fields = enrichRequestFields(kind, prefix, queryValue, lang);
     const { status, body } = await enrichLookup(kind, provider, fields);
+    const isManualLink = status === 200 && body && Array.isArray(body.candidates)
+      && body.candidates.length === 0 && body.url && MANUAL_LINK_CAPTURE_ROUTES[provider];
+    if (isManualLink) {
+      resultBox.innerHTML = '';
+      resultBox.appendChild(renderManualLinkState(provider, body.url, prefix));
+      return;
+    }
     if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) {
       resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
       return;
@@ -1162,6 +1233,30 @@ function renderTranslationCandidate(prefix, lang) {
   };
 }
 
+// Shared by every path that ends with "a stabbur sha256 exists, attach it as
+// this note's audio" — the TTS "Use" button and the manual-link
+// forvo/filmot paste-back flow (manual-link-audio-capture) both land here.
+// On the new-note form (no id yet) this stashes the hash for submitNewNote;
+// on an existing note it PATCHes immediately. Returns true on success.
+async function attachAudioToNote(prefix, sha256, providerName, meta) {
+  if (prefix === 'c') {
+    setNewNoteAudioFromSuggest(sha256, providerName, meta);
+    return true;
+  }
+  if (prefix !== 'e' || !currentNote) return false;
+  const patch = await api(`/api/notes/${currentNote.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio_blob: sha256, audio_sel_ms: null }),
+  });
+  if (patch.status !== 200) return false;
+  currentNote = patch.body;
+  updateNoteJsonView();
+  updateNoAudioWarning();
+  renderAudioSection(currentNote);
+  return true;
+}
+
 function renderTtsCandidate(prefix) {
   return (c, providerName) => {
     const metaBits = [c.source, c.voice].filter(Boolean).join(' · ');
@@ -1193,30 +1288,15 @@ function renderTtsCandidate(prefix) {
         return;
       }
 
-      if (prefix === 'c') {
-        // No note exists yet — stash the stabbur-stored sha256 so
-        // submitNewNote can send it as `audio_blob` in the create payload
-        // (design.md D1), instead of a create-then-PATCH round trip.
-        setNewNoteAudioFromSuggest(fetched.body.sha256, providerName, metaBits || idBit);
-        btn.disabled = false;
-        markSuggestUsed(btn);
-        enrichToast(`Audio fetched from ${providerName} — will attach on save`);
-        return;
-      }
-
-      const patch = await api(`/api/notes/${currentNote.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio_blob: fetched.body.sha256, audio_sel_ms: null }),
-      });
+      const attached = await attachAudioToNote(prefix, fetched.body.sha256, providerName, metaBits || idBit);
       btn.disabled = false;
-      if (patch.status === 200) {
-        currentNote = patch.body;
-        updateNoteJsonView();
-        updateNoAudioWarning();
-        renderAudioSection(currentNote);
+      if (attached) {
         markSuggestUsed(btn);
-        enrichToast(`Audio fetched from ${providerName} and stored as a blob`);
+        enrichToast(
+          prefix === 'c'
+            ? `Audio fetched from ${providerName} — will attach on save`
+            : `Audio fetched from ${providerName} and stored as a blob`
+        );
       } else {
         btn.textContent = originalLabel;
       }

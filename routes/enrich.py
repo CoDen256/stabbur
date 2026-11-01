@@ -9,6 +9,14 @@ retry, no fallback, no reinterpretation of its error shapes (design.md D3).
 
 from __future__ import annotations
 
+import ipaddress
+import os
+import socket
+import subprocess
+import tempfile
+from urllib.parse import parse_qs, urlparse
+
+import requests
 from flask import jsonify, request
 
 import blob_storage
@@ -17,6 +25,48 @@ import smia_client
 # stabbur only proxies the kinds a note actually has fields for — /stt has
 # no corresponding note field today, so it's deliberately not exposed here.
 ENRICHABLE_KINDS = ("ipa", "translations", "inflections", "tts")
+
+
+class UnsafeUrlError(Exception):
+    """A pasted URL failed the minimal safety check below — never fetched."""
+
+
+def _validate_fetch_url(url: str) -> None:
+    """Manual-link-audio-capture accepts arbitrary operator-pasted URLs
+    (confirmed with operator — no domain allowlist), but that's not the same
+    as blindly fetching whatever a pasted (or injected) URL happens to
+    resolve to. Rejects non-http(s) schemes and any hostname that resolves
+    to a private/loopback/link-local address, before any request is made
+    (design.md D5)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeUrlError(f"unsupported URL scheme {parsed.scheme!r}")
+    if not parsed.hostname:
+        raise UnsafeUrlError("URL has no hostname")
+    try:
+        addrinfo = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror as exc:
+        raise UnsafeUrlError(f"could not resolve host: {exc}") from exc
+    for *_rest, sockaddr in addrinfo:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise UnsafeUrlError(f"URL resolves to a disallowed address ({ip})")
+
+
+# yt-dlp/YouTube's own timecode query-param convention: `?t=123` or
+# `?t=123s`. filmot's "open in YouTube" links use this same convention —
+# confirmed against filmot's actual output would further narrow this, but
+# this covers the documented/standard shape either way.
+def _parse_youtube_timecode(url: str) -> int | None:
+    query = parse_qs(urlparse(url).query)
+    values = query.get("t") or query.get("start")
+    if not values:
+        return None
+    raw = values[0].rstrip("s")
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def register_enrich_routes(app):
@@ -95,3 +145,81 @@ def register_enrich_routes(app):
         except smia_client.SmiaUnavailableError as exc:
             return jsonify({"error": f"smia unavailable: {exc}"}), 502
         return jsonify(response_body), status
+
+    @app.route("/api/enrich/manual-link/forvo", methods=["POST"])
+    def post_enrich_manual_link_forvo():
+        """forvo has no API (smia's `manual_link` adapter just hands back a
+        link to forvo.com) — this is the other half: the operator pastes
+        back a direct audio URL they found on that page, and stabbur fetches
+        it server-side so it can become a real, stabbur-owned blob
+        (manual-link-audio-capture design.md D2)."""
+        body = request.get_json(silent=True) or {}
+        url = body.get("url")
+        if not url:
+            return jsonify({"error": "url is required"}), 400
+        try:
+            _validate_fetch_url(url)
+        except UnsafeUrlError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        try:
+            resp = requests.get(url, timeout=30.0)
+        except requests.RequestException as exc:
+            return jsonify({"error": f"could not fetch that url: {exc}"}), 502
+        if resp.status_code != 200:
+            return jsonify({"error": f"fetch failed with HTTP {resp.status_code}"}), 502
+
+        content_type = resp.headers.get("Content-Type", "")
+        if not content_type.startswith("audio/") and "octet-stream" not in content_type:
+            return jsonify({"error": f"that URL did not return audio (Content-Type: {content_type or 'unknown'})"}), 400
+
+        sha256 = blob_storage.store(resp.content)
+        return jsonify({"sha256": sha256}), 200
+
+    @app.route("/api/enrich/manual-link/filmot", methods=["POST"])
+    def post_enrich_manual_link_filmot():
+        """filmot has no API either — the operator pastes back a YouTube URL
+        with a timecode they found via filmot's search, and stabbur downloads
+        only a ~4-second audio window around it (not the full video) via
+        yt-dlp, per design.md D3."""
+        body = request.get_json(silent=True) or {}
+        url = body.get("url")
+        if not url:
+            return jsonify({"error": "url is required"}), 400
+        try:
+            _validate_fetch_url(url)
+        except UnsafeUrlError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        timecode = _parse_youtube_timecode(url)
+        if timecode is None:
+            return jsonify({"error": "could not find a timecode (?t=) in that URL"}), 400
+
+        start = max(0, timecode - 2)
+        end = timecode + 2
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_template = os.path.join(tmp_dir, "clip.%(ext)s")
+            try:
+                subprocess.run(
+                    [
+                        "yt-dlp",
+                        "--download-sections", f"*{start}-{end}",
+                        "-x", "--audio-format", "mp3",
+                        "-o", out_template,
+                        url,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                return jsonify({"error": f"yt-dlp failed: {exc}"}), 502
+
+            clip_path = os.path.join(tmp_dir, "clip.mp3")
+            if not os.path.exists(clip_path):
+                return jsonify({"error": "yt-dlp did not produce an audio clip"}), 502
+            with open(clip_path, "rb") as f:
+                clip_bytes = f.read()
+
+        sha256 = blob_storage.store(clip_bytes)
+        return jsonify({"sha256": sha256}), 200

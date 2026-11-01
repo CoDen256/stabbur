@@ -185,3 +185,116 @@ def test_stt_requires_an_existing_blob(client, monkeypatch):
     )
     assert resp.status_code == 400
     assert called == []
+
+
+# ── manual-link-audio-capture: forvo (direct audio URL) ──────────────────
+
+
+def test_forvo_capture_downloads_and_stores_a_blob(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    class FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "audio/mpeg"}
+        content = b"real forvo mp3 bytes"
+
+    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0: FakeResp())
+    resp = client.post(
+        "/api/enrich/manual-link/forvo", json={"url": "https://audio00.forvo.com/mp3/abc.mp3"}, headers=AUTH
+    )
+    assert resp.status_code == 200
+    import hashlib
+
+    assert resp.get_json()["sha256"] == hashlib.sha256(b"real forvo mp3 bytes").hexdigest()
+
+
+def test_forvo_capture_rejects_non_audio_response(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    class FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "text/html"}
+        content = b"<html>not audio</html>"
+
+    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0: FakeResp())
+    resp = client.post(
+        "/api/enrich/manual-link/forvo", json={"url": "https://forvo.com/word/hygge/"}, headers=AUTH
+    )
+    assert resp.status_code == 400
+
+
+def test_forvo_capture_rejects_unsafe_url(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    called = []
+    monkeypatch.setattr(enrich_module.requests, "get", lambda *a, **k: called.append(1))
+    resp = client.post(
+        "/api/enrich/manual-link/forvo", json={"url": "http://169.254.169.254/latest/meta-data"}, headers=AUTH
+    )
+    assert resp.status_code == 400
+    assert called == []
+
+
+def test_forvo_capture_rejects_non_http_scheme(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    called = []
+    monkeypatch.setattr(enrich_module.requests, "get", lambda *a, **k: called.append(1))
+    resp = client.post("/api/enrich/manual-link/forvo", json={"url": "file:///etc/passwd"}, headers=AUTH)
+    assert resp.status_code == 400
+    assert called == []
+
+
+# ── manual-link-audio-capture: filmot (YouTube URL + timecode) ───────────
+
+
+def test_filmot_capture_invokes_yt_dlp_for_a_window_around_the_timecode(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    seen = {}
+
+    def fake_run(cmd, check, capture_output, timeout):
+        seen["cmd"] = cmd
+        # Emulate yt-dlp's output: write the expected clip file.
+        out_index = cmd.index("-o")
+        out_template = cmd[out_index + 1]
+        clip_path = out_template.replace("%(ext)s", "mp3")
+        with open(clip_path, "wb") as f:
+            f.write(b"fake trimmed youtube audio")
+        return None
+
+    monkeypatch.setattr(enrich_module.subprocess, "run", fake_run)
+    resp = client.post(
+        "/api/enrich/manual-link/filmot",
+        json={"url": "https://www.youtube.com/watch?v=abc123&t=100s"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    import hashlib
+
+    assert resp.get_json()["sha256"] == hashlib.sha256(b"fake trimmed youtube audio").hexdigest()
+    assert "*98-102" in seen["cmd"]
+
+
+def test_filmot_capture_requires_a_timecode(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    called = []
+    monkeypatch.setattr(enrich_module.subprocess, "run", lambda *a, **k: called.append(1))
+    resp = client.post(
+        "/api/enrich/manual-link/filmot", json={"url": "https://www.youtube.com/watch?v=abc123"}, headers=AUTH
+    )
+    assert resp.status_code == 400
+    assert called == []
+
+
+def test_filmot_capture_rejects_unsafe_url(client, monkeypatch):
+    import routes.enrich as enrich_module
+
+    called = []
+    monkeypatch.setattr(enrich_module.subprocess, "run", lambda *a, **k: called.append(1))
+    resp = client.post(
+        "/api/enrich/manual-link/filmot", json={"url": "http://localhost:8080/?t=10"}, headers=AUTH
+    )
+    assert resp.status_code == 400
+    assert called == []
