@@ -58,6 +58,17 @@ def get(path: str, timeout: float = 20.0) -> tuple[int, dict]:
     return resp.status_code, _json_or_text(resp)
 
 
+def post_multipart(path: str, files: dict, data: dict | None = None, timeout: float = 30.0) -> tuple[int, dict]:
+    """For forwarding audio bytes to smia's multipart endpoints (currently
+    just /stt — every other kind is a plain JSON `post`). `files` matches
+    `requests`' own `files=` shape, e.g. `{"audio": (filename, bytes, content_type)}`."""
+    try:
+        resp = requests.post(f"{_base_url()}{path}", files=files, data=data or {}, headers=_headers(), timeout=timeout)
+    except requests.RequestException as exc:
+        raise SmiaUnavailableError(str(exc)) from exc
+    return resp.status_code, _json_or_text(resp)
+
+
 def get_bytes(path: str, timeout: float = 30.0) -> tuple[int, bytes, str]:
     """For fetching raw audio bytes off a /tts candidate's sha256 (smia's
     GET /tts/{key} serves raw bytes when `key` is an audio hash rather than

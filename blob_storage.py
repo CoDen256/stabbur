@@ -37,5 +37,13 @@ def exists(sha256: str) -> bool:
     return os.path.exists(_path_for(sha256))
 
 
+def read(sha256: str) -> bytes:
+    """Raises FileNotFoundError if no blob exists for this hash — callers
+    (e.g. the stt-enrichment proxy) check `exists()` first for a clean 4xx
+    rather than relying on this to surface the error."""
+    with open(_path_for(sha256), "rb") as f:
+        return f.read()
+
+
 def path(sha256: str) -> str:
     return _path_for(sha256)

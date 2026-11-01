@@ -105,7 +105,13 @@
           <div class="panel panel-pad">
             <form id="noteEditForm">
               <div class="field-row">
-                <div class="field"><label for="e_text">Text (source language)</label><textarea id="e_text" required></textarea></div>
+                <div class="field">
+                  <div class="field-label-row"><label for="e_text">Text (source language)</label>
+                    <button type="button" class="btn-ghost btn-suggest" id="e_stt_toggle" data-suggest-toggle="e_stt_suggest" style="display:none">Propose from audio</button>
+                  </div>
+                  <textarea id="e_text" required></textarea>
+                  <div class="suggest-panel" id="e_stt_suggest" data-kind="stt" data-prefix="e"></div>
+                </div>
                 <div class="field" id="e_lemma_field"><label for="e_lemma">Lemma</label><input id="e_lemma" type="text"></div>
               </div>
               <div class="field-row">

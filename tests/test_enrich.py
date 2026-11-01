@@ -90,9 +90,9 @@ def test_unknown_kind_is_rejected_before_calling_smia(client, monkeypatch):
     called = []
     monkeypatch.setattr(smia_client, "post", lambda *a, **k: called.append(1) or (200, {}))
 
-    resp = client.post("/api/enrich/stt", json={"provider": "hf_whisper"}, headers=AUTH)
+    resp = client.post("/api/enrich/notakind", json={"provider": "hf_whisper"}, headers=AUTH)
     assert resp.status_code == 400
-    assert "stt" in resp.get_json()["error"]
+    assert "notakind" in resp.get_json()["error"]
     assert called == []
 
 
@@ -144,3 +144,44 @@ def test_tts_use_surfaces_smia_fetch_failure(client, monkeypatch):
     monkeypatch.setattr(smia_client, "get_bytes", lambda path, timeout=30.0: (404, b"", "application/json"))
     resp = client.post("/api/enrich/tts/use", json={"sha256": "missing"}, headers=AUTH)
     assert resp.status_code == 502
+
+
+def test_stt_forwards_blob_bytes_as_multipart(client, monkeypatch):
+    import blob_storage
+
+    sha256 = blob_storage.store(b"fake audio bytes for stt")
+    seen = {}
+
+    def fake_post_multipart(path, files, data=None, timeout=30.0):
+        seen["path"] = path
+        seen["files"] = files
+        seen["data"] = data
+        return 200, {"provider": "hf_whisper", "text": "hallo verden"}
+
+    monkeypatch.setattr(smia_client, "post_multipart", fake_post_multipart)
+    resp = client.post(
+        "/api/enrich/stt", json={"provider": "hf_whisper", "audio_blob": sha256, "lang": "nb"}, headers=AUTH
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == {"provider": "hf_whisper", "text": "hallo verden"}
+    assert seen["path"] == "/stt"
+    assert seen["data"] == {"provider": "hf_whisper", "lang": "nb"}
+    assert seen["files"]["audio"][1] == b"fake audio bytes for stt"
+
+
+def test_stt_requires_provider(client, monkeypatch):
+    called = []
+    monkeypatch.setattr(smia_client, "post_multipart", lambda *a, **k: called.append(1) or (200, {}))
+    resp = client.post("/api/enrich/stt", json={"audio_blob": "whatever"}, headers=AUTH)
+    assert resp.status_code == 400
+    assert called == []
+
+
+def test_stt_requires_an_existing_blob(client, monkeypatch):
+    called = []
+    monkeypatch.setattr(smia_client, "post_multipart", lambda *a, **k: called.append(1) or (200, {}))
+    resp = client.post(
+        "/api/enrich/stt", json={"provider": "hf_whisper", "audio_blob": "not-a-real-sha"}, headers=AUTH
+    )
+    assert resp.status_code == 400
+    assert called == []

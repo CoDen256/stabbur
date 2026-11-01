@@ -66,3 +66,32 @@ def register_enrich_routes(app):
 
         stored_sha256 = blob_storage.store(data)
         return jsonify({"sha256": stored_sha256}), 200
+
+    @app.route("/api/enrich/stt", methods=["POST"])
+    def post_enrich_stt():
+        """Unlike every other kind, /stt's input is audio bytes, not an
+        operator-typed field — so this reads the audio from stabbur's own
+        blob storage (by sha256, same reference already stored as a note's
+        audio_blob) rather than forwarding a JSON body as-is (design.md D1)."""
+        body = request.get_json(silent=True) or {}
+        provider = body.get("provider")
+        audio_blob = body.get("audio_blob")
+        if not provider:
+            return jsonify({"error": "provider is required"}), 400
+        if not audio_blob:
+            return jsonify({"error": "audio_blob is required"}), 400
+        if not blob_storage.exists(audio_blob):
+            return jsonify({"error": "no stored audio for that audio_blob"}), 400
+
+        audio_bytes = blob_storage.read(audio_blob)
+        form_data = {"provider": provider}
+        if body.get("lang"):
+            form_data["lang"] = body["lang"]
+
+        try:
+            status, response_body = smia_client.post_multipart(
+                "/stt", files={"audio": (f"{audio_blob}.mp3", audio_bytes, "audio/mpeg")}, data=form_data
+            )
+        except smia_client.SmiaUnavailableError as exc:
+            return jsonify({"error": f"smia unavailable: {exc}"}), 502
+        return jsonify(response_body), status

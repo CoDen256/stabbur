@@ -553,10 +553,14 @@ document.getElementById('uploadAudioBtn').addEventListener('click', async () => 
 async function renderAudioSection(note) {
   const none = document.getElementById('noteAudioNone');
   const player = document.getElementById('noteAudioPlayer');
+  // "Propose from audio" only makes sense once a note actually has audio to
+  // transcribe — stt-text-suggest change.
+  document.getElementById('e_stt_toggle').style.display = note.audio_blob ? 'inline-block' : 'none';
   if (!note.audio_blob) {
     none.style.display = 'block';
     player.style.display = 'none';
     waveformState = null;
+    closeSuggestPanel(document.getElementById('e_stt_suggest'));
     return;
   }
   none.style.display = 'none';
@@ -1295,6 +1299,65 @@ function buildTranslationsSuggestPanel(prefix, providers) {
   return wrap;
 }
 
+// /stt returns exactly one `{provider, text}` per request — no candidates
+// array to pick among — so this renders a single block per provider rather
+// than reusing buildEnrichProviderRow's candidates-array assumption
+// (stt-text-suggest design.md D4... see D4 in that change's design.md).
+function renderSttResult(prefix) {
+  return (body, providerName) => {
+    const r = enrichEl(`
+      <div class="candidate-row">
+        <span class="candidate-text">${escapeHtml(body.text || '(empty transcription)')}</span>
+        <span class="candidate-spacer"></span>
+        <button class="use-btn" type="button">Use</button>
+      </div>
+    `);
+    r.querySelector('.use-btn').addEventListener('click', (e) => {
+      const field = document.getElementById(`${prefix}_text`);
+      // `text` is the note's primary content, unlike every other "Use"
+      // target — confirm before clobbering anything already there
+      // (stt-text-suggest design.md D5).
+      if (field.value.trim() && !confirm('Replace the current text with this transcription?')) return;
+      field.value = body.text || '';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      markSuggestUsed(e.target);
+      enrichToast(`Text set from ${providerName}`);
+    });
+    return r;
+  };
+}
+
+function buildSttProviderBlock(provider, prefix) {
+  const wrap = enrichEl(`
+    <div class="provider-row">
+      <div class="provider-head"><span class="provider-name">${escapeHtml(provider)}</span></div>
+      <div class="provider-result"></div>
+    </div>
+  `);
+  const resultBox = wrap.querySelector('.provider-result');
+
+  resultBox.innerHTML = '<div class="suggest-skel"></div>';
+  (async () => {
+    const { status, body } = await api('/api/enrich/stt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider,
+        audio_blob: currentNote ? currentNote.audio_blob : null,
+        lang: smiaLangCode(suggestFieldValue(prefix, 'source_lang')),
+      }),
+    });
+    if (status !== 200 || !body || typeof body.text !== 'string') {
+      resultBox.innerHTML = `<div class="suggest-error">Transcription failed.</div>`;
+      return;
+    }
+    resultBox.innerHTML = '';
+    resultBox.appendChild(renderSttResult(prefix)(body, provider));
+  })();
+
+  return wrap;
+}
+
 async function openSuggestPanel(panelEl) {
   const kind = panelEl.dataset.kind;
   const prefix = panelEl.dataset.prefix;
@@ -1320,6 +1383,11 @@ async function openSuggestPanel(panelEl) {
     panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>read-only — copy what you need</span></div>`));
     const defaultQuery = suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
     providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery)));
+    return;
+  }
+  if (kind === 'stt') {
+    panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>transcribed from this note's audio</span></div>`));
+    providers.forEach((p) => panelEl.appendChild(buildSttProviderBlock(p, prefix)));
     return;
   }
 
