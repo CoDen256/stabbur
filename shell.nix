@@ -4,6 +4,7 @@ pkgs.mkShell {
     python312
     zlib
     ffmpeg
+    deno
   ];
   shellHook = ''
     export LD_LIBRARY_PATH=${pkgs.zlib}/lib:$LD_LIBRARY_PATH

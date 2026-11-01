@@ -13,9 +13,11 @@ key translation is needed to match a paradigm cell to a form field.
 ## Goals / Non-Goals
 
 **Goals:**
-- Noun fields render as two visually grouped rows (3 + 2), matching how an
-  operator naturally thinks about singular-group/plural-group forms, in both
-  the note form and the suggestion panel's paradigm tables.
+- Noun fields render as three visually grouped rows — `article` alone, then
+  `sg_indef`/`sg_def`, then `pl_indef`/`pl_def` — matching how an operator
+  naturally thinks about the article as its own thing and singular/plural as
+  even pairs, in both the note form and the suggestion panel's paradigm
+  tables.
 - A paradigm cell can be applied directly to its matching form field with one
   click, without losing the existing copy-to-clipboard action (some
   operators may still want to paste elsewhere, e.g. into a different note
@@ -36,21 +38,28 @@ key translation is needed to match a paradigm cell to a form field.
 ### D1 — An explicit `INFLECTION_ROW_GROUPS` map, substantiv-only for now
 ```js
 const INFLECTION_ROW_GROUPS = {
-  substantiv: [['article', 'sg_indef', 'sg_def'], ['pl_indef', 'pl_def']],
+  substantiv: [['article'], ['sg_indef', 'sg_def'], ['pl_indef', 'pl_def']],
 };
 ```
 `renderInflectionFields(containerId, pos, values)` looks up
-`INFLECTION_ROW_GROUPS[pos]`; if present, renders one `.field-row`-styled
-grid div per group (reusing the existing `.field-row { display: grid;
-grid-template-columns: ... }` CSS pattern already used elsewhere in the
-form), each containing that group's `.inflection-field` cells. If absent
-(every other PoS), falls back to today's flat single-column rendering
-unchanged. Rejected alternative: a generic "chunk into rows of N" rule —
-grammatically meaningless chunking (e.g. splitting `positiv`/`nøytrum`/
-`flertall`/`komparativ`/`superlativ` into arbitrary groups of 3+2) would
-look organized but carry no actual meaning, unlike the noun case where
-singular/plural is a real linguistic grouping the operator explicitly
-named.
+`INFLECTION_ROW_GROUPS[pos]`; if present, renders one `.inflection-row`
+grid div per group (a dedicated grid class, not the main form's own
+`.field-row`, to avoid clashing with that class's unrelated visibility-
+toggling behavior elsewhere in the form), each containing that group's
+`.inflection-field` cells — `grid-auto-columns: 1fr` means a single-item
+group (`article`) naturally renders as one full-width row, with no special-
+casing needed for "a row of one." If absent (every other PoS), falls back to
+today's flat single-column rendering unchanged.
+
+Revised once already, from an initial `[['article', 'sg_indef', 'sg_def'],
+['pl_indef', 'pl_def']]` (3+2) grouping that operator feedback called "still
+chaotic" / uneven — article-alone-then-two-matched-pairs reads more cleanly
+than a 3-wide row next to a 2-wide one. Rejected alternative (both times): a
+generic "chunk into rows of N" rule — grammatically meaningless chunking
+(e.g. splitting `positiv`/`nøytrum`/`flertall`/`komparativ`/`superlativ`
+into arbitrary groups) would look organized but carry no actual meaning,
+unlike the noun case where article/singular/plural are real linguistic
+groupings the operator explicitly named.
 
 ### D2 — Paradigm-table rendering shares the same row-group map
 `buildInflectionsProviderBlock`'s per-candidate rendering, when

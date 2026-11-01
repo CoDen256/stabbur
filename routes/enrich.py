@@ -214,21 +214,33 @@ def register_enrich_routes(app):
         end = timecode + 2
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_template = os.path.join(tmp_dir, "clip.%(ext)s")
+            cmd = [
+                "yt-dlp",
+                "--no-playlist",
+                "--download-sections", f"*{start}-{end}",
+                # Cut on exact section boundaries rather than the nearest
+                # keyframe — yt-dlp's own recommendation for
+                # --download-sections, otherwise a short window can silently
+                # grab the wrong (much larger) span.
+                "--force-keyframes-at-cuts",
+                "-x", "--audio-format", "mp3",
+                "-o", out_template,
+            ]
+            # A server-side IP calling YouTube directly (no logged-in
+            # browser session) is routinely flagged with "Sign in to confirm
+            # you're not a bot" regardless of JS-runtime support — yt-dlp's
+            # own documented fix is a cookies file exported from an
+            # authenticated browser session. Optional: most captures won't
+            # need it until/unless YouTube starts flagging this deployment's
+            # IP, at which point setting this env var (no code change) is
+            # the fix, not touching this route again.
+            cookies_file = os.environ.get("YTDLP_COOKIES_FILE")
+            if cookies_file and os.path.exists(cookies_file):
+                cmd += ["--cookies", cookies_file]
+            cmd.append(url)
             try:
                 subprocess.run(
-                    [
-                        "yt-dlp",
-                        "--no-playlist",
-                        "--download-sections", f"*{start}-{end}",
-                        # Cut on exact section boundaries rather than the
-                        # nearest keyframe — yt-dlp's own recommendation for
-                        # --download-sections, otherwise a short window can
-                        # silently grab the wrong (much larger) span.
-                        "--force-keyframes-at-cuts",
-                        "-x", "--audio-format", "mp3",
-                        "-o", out_template,
-                        url,
-                    ],
+                    cmd,
                     check=True,
                     capture_output=True,
                     text=True,

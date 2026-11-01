@@ -274,6 +274,59 @@ def test_filmot_capture_invokes_yt_dlp_for_a_window_around_the_timecode(client, 
 
     assert resp.get_json()["sha256"] == hashlib.sha256(b"fake trimmed youtube audio").hexdigest()
     assert "*98-102" in seen["cmd"]
+    assert "--cookies" not in seen["cmd"]
+
+
+def test_filmot_capture_passes_cookies_file_when_configured(client, monkeypatch, tmp_path):
+    import routes.enrich as enrich_module
+
+    cookies_file = tmp_path / "cookies.txt"
+    cookies_file.write_text("# Netscape HTTP Cookie File\n")
+    monkeypatch.setenv("YTDLP_COOKIES_FILE", str(cookies_file))
+
+    seen = {}
+
+    def fake_run(cmd, check, capture_output, text, timeout):
+        seen["cmd"] = cmd
+        out_index = cmd.index("-o")
+        out_template = cmd[out_index + 1]
+        with open(out_template.replace("%(ext)s", "mp3"), "wb") as f:
+            f.write(b"clip with cookies")
+        return None
+
+    monkeypatch.setattr(enrich_module.subprocess, "run", fake_run)
+    resp = client.post(
+        "/api/enrich/manual-link/filmot",
+        json={"url": "https://www.youtube.com/watch?v=abc123&t=100s"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    cookies_index = seen["cmd"].index("--cookies")
+    assert seen["cmd"][cookies_index + 1] == str(cookies_file)
+
+
+def test_filmot_capture_ignores_cookies_env_when_file_missing(client, monkeypatch, tmp_path):
+    import routes.enrich as enrich_module
+
+    monkeypatch.setenv("YTDLP_COOKIES_FILE", str(tmp_path / "does-not-exist.txt"))
+    seen = {}
+
+    def fake_run(cmd, check, capture_output, text, timeout):
+        seen["cmd"] = cmd
+        out_index = cmd.index("-o")
+        out_template = cmd[out_index + 1]
+        with open(out_template.replace("%(ext)s", "mp3"), "wb") as f:
+            f.write(b"clip without cookies")
+        return None
+
+    monkeypatch.setattr(enrich_module.subprocess, "run", fake_run)
+    resp = client.post(
+        "/api/enrich/manual-link/filmot",
+        json={"url": "https://www.youtube.com/watch?v=abc123&t=100s"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    assert "--cookies" not in seen["cmd"]
 
 
 def test_filmot_capture_requires_a_timecode(client, monkeypatch):

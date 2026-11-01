@@ -28,15 +28,20 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Manually verify: a `forvo` row shows the "Open forvo.com ↗" link instead of "No entry found." **Confirmed by the operator in the real UI (reported the next two bugs from this exact screen).**
-- [ ] 6.2 Manually verify: pasting a real Forvo audio link attaches audio and the trim UI appears. **Operator hit a 403 fetching a real Forvo link — fixed in section 7 below; not re-verified end-to-end against a live Forvo URL since.**
-- [x] 6.3 Manually verify: pasting a real filmot-found YouTube URL+timecode downloads a short clip, attaches it, and the trim UI appears. **The operator's exact failing URL+timecode was re-run directly against `yt-dlp` (not through the Flask route) after the section 7 fix and produced a valid 46KB mp3 — the route-level attach/trim step itself wasn't exercised through a browser.**
+- [x] 6.1 Manually verify: a `forvo` row shows the "Open forvo.com ↗" link instead of "No entry found." **Confirmed by the operator in the real UI (reported the next two bugs from this exact screen).**
+- [x] 6.2 Manually verify: pasting a real Forvo audio link attaches audio and the trim UI appears. **Operator first hit a 403 (fixed in round 1 of section 7), then confirmed "forvo working properly" after the fix.**
+- [ ] 6.3 Manually verify: pasting a real filmot-found YouTube URL+timecode downloads a short clip, attaches it, and the trim UI appears. **Round 1 of section 7 (yt-dlp flags/pin) fixed the operator's first error and was independently confirmed by re-running their exact URL/timecode directly against yt-dlp (succeeded, valid 46KB mp3) — but the operator's actual deployment then hit a second, different failure (YouTube's bot-check) on retry; round 2 of section 7 addresses that. Not yet confirmed working end-to-end against the operator's real deployment.**
 - [x] 6.4 Manually verify: pasting a non-audio link, a URL with no timecode, and an unsafe (private-address) URL each fail with a clear message and no blob is created. **Verified via the full automated test suite (67/67) run against a real throwaway Postgres container, plus `_validate_fetch_url`/`_parse_youtube_timecode` exercised standalone.**
 
 ## 7. Fixes from live operator testing
 
+### Round 1
 - [x] 7.1 `ui.css`: "Fetch & attach" didn't fit next to the paste-back input in the (narrow) audio panel sidebar — `.manual-link-paste` now stacks the input and button vertically instead of a side-by-side flex row.
 - [x] 7.2 `routes/enrich.py`: filmot capture failed with a bare "non-zero exit status 1" — added `--force-keyframes-at-cuts` (yt-dlp's own recommendation for `--download-sections`) and switched the yt-dlp pin from `==` to `>=` (YouTube's extractor compatibility breaks on old pins often enough that this is the realistic fix for this failure mode, not a code change — see design.md's already-called-out risk). Re-ran the operator's exact failing URL/timecode directly against `yt-dlp` post-fix and it succeeded. Also now surfaces yt-dlp's actual stderr in the error response instead of just the exit code, so the next failure (whatever it turns out to be) is diagnosable without re-deriving this from scratch.
-- [x] 7.3 `routes/enrich.py`: forvo capture failed with HTTP 403 — Forvo's audio CDN rejects requests with no (or an obviously scripted) User-Agent; added a real-browser User-Agent and a `Referer: https://forvo.com/` header to the forvo fetch.
+- [x] 7.3 `routes/enrich.py`: forvo capture failed with HTTP 403 — Forvo's audio CDN rejects requests with no (or an obviously scripted) User-Agent; added a real-browser User-Agent and a `Referer: https://forvo.com/` header to the forvo fetch. **Operator confirmed forvo now works.**
 
-(The paradigm-grid "chaotic" layout bug the operator also reported in this session is tracked and fixed under `inflection-rows-and-fill`'s own tasks.md, section 4 — a different change's UI, not this one.)
+### Round 2 (operator's filmot retry hit a second, different failure)
+- [x] 7.4 `Dockerfile`/`shell.nix`: yt-dlp warned "No supported JavaScript runtime could be found" — added `deno` (yt-dlp's default-supported runtime) to both the Docker image (via its own install script, no apt package) and local dev.
+- [x] 7.5 `routes/enrich.py`: the operator's deployment then hit YouTube's "Sign in to confirm you're not a bot" — independent of the JS-runtime fix, this is IP-reputation-based, not something a code change alone can bypass. Added an optional `YTDLP_COOKIES_FILE` env var: when set and the file exists, passed as `--cookies <path>` to yt-dlp (yt-dlp's own documented workaround — a cookies.txt exported from an authenticated browser session). Backend-tested (present-and-set, present-but-missing-file, and unset cases); not verified end-to-end against the operator's real deployment since that requires them to actually export and configure a cookies file.
+
+(The paradigm-grid "chaotic" layout bug and the inflection row-grouping revision the operator also reported in this session are tracked and fixed under `inflection-rows-and-fill`'s own tasks.md, section 4 — a different change's UI, not this one.)

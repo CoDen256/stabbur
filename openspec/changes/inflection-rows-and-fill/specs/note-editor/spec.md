@@ -1,17 +1,18 @@
 ## ADDED Requirements
 
-### Requirement: Noun inflection fields are grouped by singular/plural
-The system SHALL render a `substantiv` note's inflection fields as two
-grouped rows — `article`, `sg_indef`, `sg_def` together on one row, and
-`pl_indef`, `pl_def` together on a second row — rather than one field per
-row. This grouping SHALL apply identically wherever the noun's inflection
-fields are shown: the note form itself, and any suggestion-panel paradigm
-table for a `substantiv` candidate.
+### Requirement: Noun inflection fields are grouped by article, singular, and plural
+The system SHALL render a `substantiv` note's inflection fields as three
+grouped rows — `article` alone on its own row, `sg_indef`/`sg_def` together
+on a second row, and `pl_indef`/`pl_def` together on a third row — rather
+than one field per row. This grouping SHALL apply identically wherever the
+noun's inflection fields are shown: the note form itself, and any
+suggestion-panel paradigm table for a `substantiv` candidate.
 
 #### Scenario: Viewing a noun's inflection fields on the note form
 - **WHEN** the operator is editing or creating a `pos=substantiv` note
-- **THEN** `article`, `sg_indef`, `sg_def` appear together on one row, and
-  `pl_indef`, `pl_def` appear together on a second row
+- **THEN** `article` appears alone on its own row, `sg_indef`/`sg_def` appear
+  together on a second row, and `pl_indef`/`pl_def` appear together on a
+  third row
 
 #### Scenario: Viewing a noun paradigm candidate in the suggestion panel
 - **WHEN** a provider's inflection paradigm for a `substantiv` candidate is

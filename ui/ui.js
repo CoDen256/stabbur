@@ -25,7 +25,7 @@ const INFLECTION_SHAPES = {
 // design.md D1 — no row-grouping was requested for adjektiv/verb/adverb,
 // and an arbitrary N-per-row chunk there would carry no actual meaning).
 const INFLECTION_ROW_GROUPS = {
-  substantiv: [['article', 'sg_indef', 'sg_def'], ['pl_indef', 'pl_def']],
+  substantiv: [['article'], ['sg_indef', 'sg_def'], ['pl_indef', 'pl_def']],
 };
 
 const KNOWN_POS_VALUES = ['substantiv', 'adjektiv', 'verb', 'adverb', 'preposisjon', 'konjunksjon'];

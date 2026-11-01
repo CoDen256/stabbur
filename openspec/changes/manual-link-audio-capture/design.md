@@ -106,9 +106,26 @@ tool — this is a cheap, standard safeguard, not a scope-creeping feature.
   accepted this trade-off.
 - **[Risk]** `yt-dlp` requires ongoing maintenance — YouTube changes its
   page/player internals periodically and `yt-dlp` releases frequent fixes;
-  an un-updated pin can silently stop working. → **Mitigation**: none built
-  into this change (no auto-update mechanism) — noted as an operational
-  reality to revisit if/when it breaks, not solved preemptively.
+  an un-updated pin can silently stop working. → **Mitigation**: the
+  `requirements.txt` pin is a floor (`>=`), not exact, so re-resolving
+  dependencies is the actual fix for most such breaks, not a code change.
+  Confirmed live during implementation: an old exact pin genuinely did fail
+  this way against a real video.
+- **[Risk]** (found live, post-implementation) A server IP calling YouTube
+  with no authenticated session is routinely flagged — "Sign in to confirm
+  you're not a bot" — independent of yt-dlp's version or JS-runtime support.
+  → **Mitigation**: `YTDLP_COOKIES_FILE`, an optional env var pointing at a
+  cookies.txt exported from an authenticated browser session (yt-dlp's own
+  documented workaround for this exact error); passed as `--cookies` when
+  set. Not configured by default — most captures won't need it until/unless
+  YouTube starts flagging this deployment's specific IP.
+- **[Risk]** (found live, post-implementation) yt-dlp warns "No supported
+  JavaScript runtime could be found" without one installed, and recent
+  YouTube extraction increasingly depends on solving a JS challenge.
+  → **Mitigation**: `deno` (yt-dlp's default-supported runtime) added to the
+  Docker image (via its own install script — no apt package) and
+  `shell.nix`, so it's present wherever stabbur runs, not just in whichever
+  environment happened to have it already.
 - **[Risk]** A pasted Forvo "direct link" that's actually the word page
   (HTML, not audio) would otherwise store garbage. → **Mitigation**: D2's
   content-type/size sanity check surfaces this as a clear error instead of a

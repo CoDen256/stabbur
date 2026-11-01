@@ -14,11 +14,14 @@ operator still explicitly chooses which provider's form to apply, per field).
 
 ## What Changes
 
-- Noun (`substantiv`) inflection fields render as two rows instead of five
-  stacked rows: `article`/`sg_indef`/`sg_def` together, `pl_indef`/`pl_def`
-  together. This applies both to the note form's own inflection fields and
-  to each paradigm candidate's layout in the suggestion panel, so the two
-  stay visually aligned.
+- Noun (`substantiv`) inflection fields render as three rows instead of five
+  stacked rows: `article` alone on its own row, then `sg_indef`/`sg_def`
+  together, then `pl_indef`/`pl_def` together. This applies both to the note
+  form's own inflection fields and to each paradigm candidate's layout in the
+  suggestion panel, so the two stay visually aligned. (Revised from an
+  initial 3+2 grouping — `article`+`sg_indef`+`sg_def` together — after
+  operator feedback that it still read as uneven; article-alone-then-two-
+  even-pairs reads more cleanly.)
 - Other PoS shapes (`adjektiv`, `verb`, `adverb`) keep their current
   single-row/wrapping layout — no row-grouping request was made for them,
   and inventing one isn't part of this change.
