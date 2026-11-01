@@ -807,6 +807,32 @@ document.getElementById('grammarDeleteBtn').addEventListener('click', async () =
 
 // ------------------------------------------------------------- new note --
 
+// Holds a TTS suggestion's stabbur sha256 until the note is created — a
+// brand-new note has no id yet to PATCH against (unlike the existing-note
+// editor's TTS "Use", which attaches immediately). Cleared whenever the
+// dropzone file input is used instead, and vice versa (last action wins —
+// new-note-audio-suggest design.md D2).
+let newNoteAudioFromSuggest = null;
+
+function setNewNoteAudioFromSuggest(sha256, providerName, meta) {
+  newNoteAudioFromSuggest = { sha256, providerName };
+  document.getElementById('c_audio_file').value = '';
+  const chosen = document.getElementById('c_audio_suggest_chosen');
+  chosen.style.display = 'block';
+  chosen.textContent = `Will attach on save: ${providerName}${meta ? ` (${meta})` : ''}`;
+}
+
+function clearNewNoteAudioFromSuggest() {
+  newNoteAudioFromSuggest = null;
+  const chosen = document.getElementById('c_audio_suggest_chosen');
+  chosen.style.display = 'none';
+  chosen.textContent = '';
+}
+
+document.getElementById('c_audio_file').addEventListener('change', (e) => {
+  if (e.target.files[0]) clearNewNoteAudioFromSuggest();
+});
+
 function updateNewNoteFieldVisibility() {
   const type = document.getElementById('c_type').value;
   applyTypeFieldVisibility('c', type);
@@ -831,6 +857,7 @@ async function renderNewNote() {
   document.getElementById('createForm').reset();
   document.getElementById('c_source_lang').value = 'no';
   document.getElementById('createResult').textContent = '';
+  clearNewNoteAudioFromSuggest();
   renderTranslationRows('c_translations_list', [], null);
   updateNewNoteFieldVisibility();
   updateNewNoteInflectionFields();
@@ -860,6 +887,12 @@ async function submitNewNote(status) {
     grammar_rule_id: document.getElementById('c_grammar_rule_id').value
       ? Number(document.getElementById('c_grammar_rule_id').value)
       : null,
+    // A TTS suggestion already has its stabbur sha256 before the note
+    // exists, so it goes straight into the create payload — no
+    // create-then-PATCH round trip needed for this path (design.md D1).
+    // A dropzone file, by contrast, needs the created note's id to call the
+    // multipart /blobs upload, so it stays a separate step below.
+    audio_blob: newNoteAudioFromSuggest ? newNoteAudioFromSuggest.sha256 : null,
   };
 
   const { status: httpStatus, body } = await api('/api/notes', {
@@ -888,6 +921,7 @@ async function submitNewNote(status) {
     }
   }
 
+  newNoteAudioFromSuggest = null;
   location.hash = `#/notes/${body.id}`;
 }
 
@@ -1117,7 +1151,8 @@ function renderTtsCandidate(prefix) {
       </div>
     `);
     r.querySelector('.use-btn').addEventListener('click', async (e) => {
-      if (!currentNote) return;
+      if (prefix !== 'e' && prefix !== 'c') return;
+      if (prefix === 'e' && !currentNote) return;
       const btn = e.target;
       const originalLabel = btn.textContent;
       btn.disabled = true;
@@ -1133,6 +1168,18 @@ function renderTtsCandidate(prefix) {
         enrichToast('Could not fetch that candidate’s audio');
         return;
       }
+
+      if (prefix === 'c') {
+        // No note exists yet — stash the stabbur-stored sha256 so
+        // submitNewNote can send it as `audio_blob` in the create payload
+        // (design.md D1), instead of a create-then-PATCH round trip.
+        setNewNoteAudioFromSuggest(fetched.body.sha256, providerName, metaBits || idBit);
+        btn.disabled = false;
+        markSuggestUsed(btn);
+        enrichToast(`Audio fetched from ${providerName} — will attach on save`);
+        return;
+      }
+
       const patch = await api(`/api/notes/${currentNote.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

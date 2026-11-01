@@ -336,7 +336,12 @@
             <label for="c_grammar_rule_id">Grammar rule (required for type=grammar)</label>
             <select id="c_grammar_rule_id"><option value="">— none —</option></select>
           </div>
-          <div class="field"><label for="c_audio_file">Audio (optional — can also attach later)</label>
+          <div class="field">
+            <div class="field-label-row"><label for="c_audio_file">Audio (optional — can also attach later)</label>
+              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_tts_suggest">Suggest</button>
+            </div>
+            <div id="c_audio_suggest_chosen" class="inline-note" style="display:none"></div>
+            <div class="suggest-panel" id="c_tts_suggest" data-kind="tts" data-prefix="c"></div>
             <div class="dropzone"><input id="c_audio_file" type="file" accept="audio/*"></div>
           </div>
           <div style="display:flex; gap:8px; margin-top:18px;">
