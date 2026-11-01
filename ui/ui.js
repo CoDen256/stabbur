@@ -19,6 +19,15 @@ const INFLECTION_SHAPES = {
   adverb: ['form'],
 };
 
+// Grammatically meaningful row grouping for the inflection fields —
+// substantiv only (singular forms, then plural forms); every other PoS
+// falls back to the default flat layout (inflection-rows-and-fill
+// design.md D1 — no row-grouping was requested for adjektiv/verb/adverb,
+// and an arbitrary N-per-row chunk there would carry no actual meaning).
+const INFLECTION_ROW_GROUPS = {
+  substantiv: [['article', 'sg_indef', 'sg_def'], ['pl_indef', 'pl_def']],
+};
+
 const KNOWN_POS_VALUES = ['substantiv', 'adjektiv', 'verb', 'adverb', 'preposisjon', 'konjunksjon'];
 
 // Only `word` notes carry a meaningful lemma/PoS; only `grammar` notes have
@@ -183,6 +192,15 @@ function readTranslationRows(containerId) {
 
 // -------------------------------------------------- inflection fields UI --
 
+function inflectionFieldHtml(field, value) {
+  return `
+    <div class="inflection-field">
+      <label>${escapeHtml(field.replace(/_/g, ' '))}</label>
+      <input type="text" data-inflection-field="${field}" value="${escapeHtml(value || '')}">
+    </div>
+  `;
+}
+
 function renderInflectionFields(containerId, pos, values) {
   const container = document.getElementById(containerId);
   const shape = INFLECTION_SHAPES[pos];
@@ -190,12 +208,14 @@ function renderInflectionFields(containerId, pos, values) {
     container.innerHTML = '';
     return;
   }
-  container.innerHTML = shape.map((field) => `
-    <div class="inflection-field">
-      <label>${escapeHtml(field.replace(/_/g, ' '))}</label>
-      <input type="text" data-inflection-field="${field}" value="${escapeHtml((values && values[field]) || '')}">
-    </div>
-  `).join('');
+  const groups = INFLECTION_ROW_GROUPS[pos];
+  if (!groups) {
+    container.innerHTML = shape.map((field) => inflectionFieldHtml(field, values && values[field])).join('');
+    return;
+  }
+  container.innerHTML = groups
+    .map((group) => `<div class="inflection-row">${group.map((field) => inflectionFieldHtml(field, values && values[field])).join('')}</div>`)
+    .join('');
 }
 
 function readInflectionFields(containerId) {
@@ -1233,19 +1253,48 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
     }
     resultBox.innerHTML = '';
     body.candidates.forEach((c) => {
-      const rows = Object.entries(c.paradigm || {}).map(([k, v]) => `
+      const paradigm = c.paradigm || {};
+      // Note-form field for this key, if the active note's current PoS has
+      // one — a provider can report a key that doesn't apply (wrong PoS
+      // guess), in which case only copy is offered (design.md D3).
+      const fieldFor = (key) => document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
+      const paradigmRow = (key, value) => `
         <div class="paradigm-row">
-          <span class="paradigm-key">${escapeHtml(k.replace(/_/g, ' '))}</span>
-          <span class="copy-cell" data-copy="${escapeHtml(v)}">${escapeHtml(v)}<span class="copy-ic">⧉</span></span>
+          <span class="paradigm-key">${escapeHtml(key.replace(/_/g, ' '))}</span>
+          <span class="copy-cell" data-copy="${escapeHtml(value)}">${escapeHtml(value)}<span class="copy-ic">⧉</span></span>
+          ${fieldFor(key) ? `<button class="fill-btn" type="button" data-fill-field="${escapeHtml(key)}" data-fill-value="${escapeHtml(value)}" title="Fill into the note's ${escapeHtml(key.replace(/_/g, ' '))} field">→ Fill</button>` : ''}
         </div>
-      `).join('');
+      `;
+
+      // Substantiv candidates get the same singular/plural row grouping as
+      // the note form itself (inflection-rows-and-fill); any key outside
+      // the grouping (unexpected/extra provider key) still renders, just
+      // appended after instead of silently dropped.
+      const groups = INFLECTION_ROW_GROUPS[c.pos];
+      let rowsHtml;
+      if (groups) {
+        const grouped = new Set(groups.flat());
+        rowsHtml = groups
+          .map((group) => `<div class="inflection-row">${group.filter((k) => k in paradigm).map((k) => paradigmRow(k, paradigm[k])).join('')}</div>`)
+          .join('') + Object.entries(paradigm).filter(([k]) => !grouped.has(k)).map(([k, v]) => paradigmRow(k, v)).join('');
+      } else {
+        rowsHtml = Object.entries(paradigm).map(([k, v]) => paradigmRow(k, v)).join('');
+      }
+
       const block = enrichEl(`
         <div class="paradigm-candidate">
           <div class="paradigm-candidate-head"><strong>${escapeHtml(c.lemma || '')}</strong> · ${escapeHtml(c.pos || '')}</div>
-          ${rows}
+          ${rowsHtml}
         </div>
       `);
       block.querySelectorAll('.copy-cell').forEach((cell) => cell.addEventListener('click', () => enrichCopy(cell.dataset.copy)));
+      block.querySelectorAll('.fill-btn').forEach((btn) => btn.addEventListener('click', () => {
+        const field = fieldFor(btn.dataset.fillField);
+        if (!field) return;
+        field.value = btn.dataset.fillValue;
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        enrichToast(`${btn.dataset.fillField.replace(/_/g, ' ')} filled from ${provider}`);
+      }));
       resultBox.appendChild(block);
     });
   }
