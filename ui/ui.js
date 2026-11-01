@@ -1341,8 +1341,10 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
       const paradigmRow = (key, value) => `
         <div class="paradigm-row">
           <span class="paradigm-key">${escapeHtml(key.replace(/_/g, ' '))}</span>
-          <span class="copy-cell" data-copy="${escapeHtml(value)}">${escapeHtml(value)}<span class="copy-ic">⧉</span></span>
-          ${fieldFor(key) ? `<button class="fill-btn" type="button" data-fill-field="${escapeHtml(key)}" data-fill-value="${escapeHtml(value)}" title="Fill into the note's ${escapeHtml(key.replace(/_/g, ' '))} field">→ Fill</button>` : ''}
+          <span class="paradigm-row-value">
+            <span class="copy-cell" data-copy="${escapeHtml(value)}">${escapeHtml(value)}<span class="copy-ic">⧉</span></span>
+            ${fieldFor(key) ? `<button class="fill-btn" type="button" data-fill-field="${escapeHtml(key)}" data-fill-value="${escapeHtml(value)}" title="Fill into the note's ${escapeHtml(key.replace(/_/g, ' '))} field">→ Fill</button>` : ''}
+          </span>
         </div>
       `;
 

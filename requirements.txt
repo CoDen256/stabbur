@@ -5,4 +5,9 @@ psycopg2-binary==2.9.10
 pytest==8.3.4
 requests==2.34.2
 SQLAlchemy==2.0.36
-yt-dlp==2024.12.13
+# Pinned with a floor, not exact (unlike every other dependency here):
+# YouTube changes its player/signature internals often enough that an old
+# yt-dlp release silently stops working (non-zero exit, no code change on
+# our side) — `pip install -U yt-dlp` / re-resolving this file is the actual
+# fix for that failure mode, not a stabbur code change.
+yt-dlp>=2024.12.13

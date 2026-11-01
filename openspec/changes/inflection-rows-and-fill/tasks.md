@@ -16,7 +16,8 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Manually verify: a substantiv note's fields show as two rows (3 + 2) on both the new-note and existing-note forms. **Not verified in this session — no running backend/browser available.**
-- [ ] 4.2 Manually verify: a substantiv paradigm candidate in the suggestion panel shows the same two-row grouping. **Not verified in this session.**
+- [x] 4.1 Manually verify: a substantiv note's fields show as two rows (3 + 2) on both the new-note and existing-note forms. **Operator confirmed the note-form row grouping itself rendered correctly.**
+- [ ] 4.2 Manually verify: a substantiv paradigm candidate in the suggestion panel shows the same two-row grouping. **Operator reported this looked "chaotic, not in a grid" — see 4.5 fix below; not re-verified in a browser since.**
 - [ ] 4.3 Manually verify: clicking "Fill" on `sg_def` from one provider and `pl_def` from a different provider both land correctly, independently. **Not verified in this session.**
 - [ ] 4.4 Manually verify: adjektiv/verb/adverb inflection fields are visually unchanged from today. **Not verified in this session — code change is additive/conditional on `INFLECTION_ROW_GROUPS[pos]` being present, so other PoS shapes take the unchanged fallback branch by construction.**
+- [x] 4.5 Fix (from operator report): the paradigm suggestion grid looked chaotic — each `.paradigm-row` was a horizontal flex row (label, value, Fill button) with `flex-wrap`, so inside a 3-wide/2-wide `.inflection-row` grid, cells wrapped their contents independently and landed at different heights. Restructured `.paradigm-row` to a label-above-value layout (matching `.inflection-field`'s own shape), so every cell in a row is visually uniform regardless of its row's column count.

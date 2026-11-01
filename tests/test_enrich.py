@@ -198,7 +198,7 @@ def test_forvo_capture_downloads_and_stores_a_blob(client, monkeypatch):
         headers = {"Content-Type": "audio/mpeg"}
         content = b"real forvo mp3 bytes"
 
-    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0: FakeResp())
+    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0, headers=None: FakeResp())
     resp = client.post(
         "/api/enrich/manual-link/forvo", json={"url": "https://audio00.forvo.com/mp3/abc.mp3"}, headers=AUTH
     )
@@ -216,7 +216,7 @@ def test_forvo_capture_rejects_non_audio_response(client, monkeypatch):
         headers = {"Content-Type": "text/html"}
         content = b"<html>not audio</html>"
 
-    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0: FakeResp())
+    monkeypatch.setattr(enrich_module.requests, "get", lambda url, timeout=30.0, headers=None: FakeResp())
     resp = client.post(
         "/api/enrich/manual-link/forvo", json={"url": "https://forvo.com/word/hygge/"}, headers=AUTH
     )
@@ -253,7 +253,7 @@ def test_filmot_capture_invokes_yt_dlp_for_a_window_around_the_timecode(client, 
 
     seen = {}
 
-    def fake_run(cmd, check, capture_output, timeout):
+    def fake_run(cmd, check, capture_output, text, timeout):
         seen["cmd"] = cmd
         # Emulate yt-dlp's output: write the expected clip file.
         out_index = cmd.index("-o")

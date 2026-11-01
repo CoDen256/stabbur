@@ -53,6 +53,21 @@ def _validate_fetch_url(url: str) -> None:
             raise UnsafeUrlError(f"URL resolves to a disallowed address ({ip})")
 
 
+# Forvo's audio CDN (and similar hotlink-protected hosts) rejects requests
+# with no User-Agent or an obviously-scripted one, and some also check
+# Referer — discovered live as a 403 on a real Forvo audio link with
+# `requests`' default UA. A real browser UA (not a self-identifying one
+# like smia's adapters use for Wikimedia, which Forvo specifically seems to
+# still reject) plus a Referer pointing at forvo.com satisfies both checks.
+_DIRECT_AUDIO_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://forvo.com/",
+}
+
+
 # yt-dlp/YouTube's own timecode query-param convention: `?t=123` or
 # `?t=123s`. filmot's "open in YouTube" links use this same convention —
 # confirmed against filmot's actual output would further narrow this, but
@@ -163,7 +178,7 @@ def register_enrich_routes(app):
             return jsonify({"error": str(exc)}), 400
 
         try:
-            resp = requests.get(url, timeout=30.0)
+            resp = requests.get(url, timeout=30.0, headers=_DIRECT_AUDIO_FETCH_HEADERS)
         except requests.RequestException as exc:
             return jsonify({"error": f"could not fetch that url: {exc}"}), 502
         if resp.status_code != 200:
@@ -203,17 +218,31 @@ def register_enrich_routes(app):
                 subprocess.run(
                     [
                         "yt-dlp",
+                        "--no-playlist",
                         "--download-sections", f"*{start}-{end}",
+                        # Cut on exact section boundaries rather than the
+                        # nearest keyframe — yt-dlp's own recommendation for
+                        # --download-sections, otherwise a short window can
+                        # silently grab the wrong (much larger) span.
+                        "--force-keyframes-at-cuts",
                         "-x", "--audio-format", "mp3",
                         "-o", out_template,
                         url,
                     ],
                     check=True,
                     capture_output=True,
+                    text=True,
                     timeout=120,
                 )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                return jsonify({"error": f"yt-dlp failed: {exc}"}), 502
+            except subprocess.CalledProcessError as exc:
+                # The bare exit status alone ("returned non-zero exit status
+                # 1") is useless for diagnosing a live failure (expired
+                # signature, YouTube bot-check, a genuinely bad URL, ...) —
+                # surface yt-dlp's own stderr, which names the real cause.
+                detail = (exc.stderr or exc.stdout or "").strip()
+                return jsonify({"error": f"yt-dlp failed: {detail[-1500:] or exc}"}), 502
+            except subprocess.TimeoutExpired as exc:
+                return jsonify({"error": f"yt-dlp timed out: {exc}"}), 502
 
             clip_path = os.path.join(tmp_dir, "clip.mp3")
             if not os.path.exists(clip_path):
