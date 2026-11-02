@@ -22,7 +22,7 @@ services:
       timeout: 3s
       retries: 20
 
-  backend:
+  stabbur-backend:
     build: .
     container_name: stabbur-backend
     depends_on:
@@ -69,17 +69,6 @@ services:
       # with nothing needing to reach it by Docker service name.
       - default
       - tun-shared
-
-  adminer:
-    image: adminer
-    container_name: stabbur-adminer
-    depends_on:
-      stabbur-postgres:
-        condition: service_healthy
-    environment:
-      ADMINER_DEFAULT_SERVER: stabbur-postgres
-    ports:
-      - "8081:8080"
 
 networks:
   default: {}
