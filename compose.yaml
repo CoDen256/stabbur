@@ -40,10 +40,21 @@ services:
       # services hit).
       SMIA_BASE_URL: ${SMIA_BASE_URL:-http://smia-backend:5055}
       SMIA_AUTH_TOKEN: ${SMIA_AUTH_TOKEN:-changeme}
+      # manual-link-audio-capture: optional, only read if the file at this
+      # path actually exists inside the container (routes/enrich.py checks
+      # os.path.exists before adding --cookies) — fine to leave unset/absent
+      # until YouTube starts flagging this deployment's IP with "Sign in to
+      # confirm you're not a bot". To use it: export cookies.txt from an
+      # authenticated YouTube session in your browser (Netscape format —
+      # e.g. the "Get cookies.txt" extension), save it as ./cookies.txt next
+      # to this compose file (gitignored, never commit it — it's live
+      # session credentials), and uncomment the matching bind mount below.
+      YTDLP_COOKIES_FILE: /app/cookies.txt
     volumes:
       # Named volume, not baked into the image: blob bytes should survive
       # container rebuilds (D45 — stabbur owns the canonical learning audio).
       - stabbur-blobs:/app/blobs
+      # - ./cookies.txt:/app/cookies.txt:ro
     ports:
       - "5056:5056"
     networks:

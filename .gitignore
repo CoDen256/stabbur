@@ -5,3 +5,6 @@ __pycache__/
 node_modules/
 /blobs/
 .pytest_cache/
+# yt-dlp cookies file (manual-link-audio-capture) — session credentials
+# exported from an authenticated browser, never committed.
+/cookies.txt

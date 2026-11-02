@@ -141,6 +141,12 @@ tool — this is a cheap, standard safeguard, not a scope-creeping feature.
 - Additive only: two new routes, new UI states on the TTS panel, new
   dependencies in `requirements.txt`/`Dockerfile`. No existing route, field,
   or UI behavior changes shape.
+- `compose.yaml`'s `backend` service sets `YTDLP_COOKIES_FILE: /app/cookies.txt`
+  unconditionally (harmless when absent — `routes/enrich.py` checks
+  `os.path.exists` before using it) and has a commented-out bind mount
+  (`./cookies.txt:/app/cookies.txt:ro`) ready to uncomment once an operator
+  actually needs to supply one; `.gitignore` excludes `/cookies.txt` since
+  it's live session credentials, not a code asset.
 - Rollback: remove the new routes/UI branches and the two new dependencies;
   no persisted state is unique to this feature (it only ever produces
   ordinary content-addressed blobs).
