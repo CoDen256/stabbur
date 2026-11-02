@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stabbur — lemma-first suggestions (mock)</title>
+<style>
+/* Lifted directly from ui/ui.css's real theme tokens — this mock is meant
+   to look like a natural evolution of the current UI, not a redesign. */
+:root {
+  --bg: #f5f3ef;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #ebe7e0;
+  --border: #e2ddd3;
+  --border-soft: #ece8e0;
+  --text: #221f1a;
+  --text-dim: #6b6660;
+  --text-faint: #9a948a;
+  --accent: #b35a2d;
+  --accent-soft: #b35a2d14;
+  --accent-text: #8a431c;
+  --ok: #2f8a5c;
+  --ok-soft: #2f8a5c14;
+  --radius: 6px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --bg-elevated: #1b1f26; --bg-sunken: #0f1216;
+    --border: #2a3039; --border-soft: #232832;
+    --text: #e8e6e1; --text-dim: #8b94a3; --text-faint: #566073;
+    --accent: #c6703f; --accent-soft: #c6703f26; --accent-text: #f2b688;
+    --ok: #5bab7e; --ok-soft: #5bab7e1f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0; color: var(--text); background: var(--bg);
+  padding: 32px 20px 80px;
+}
+.wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.mock-banner {
+  font-size: 12px; color: var(--text-faint); text-align: center;
+  border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 12px;
+}
+h1 { font-size: 17px; margin: 0 0 2px; }
+.sub { color: var(--text-dim); font-size: 13px; margin: 0 0 4px; }
+
+.panel {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
+.field:first-child { margin-top: 0; }
+.field label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+.field-row:first-child { margin-top: 0; }
+
+textarea, input[type="text"] {
+  font: inherit; font-size: 13.5px; background: var(--bg-sunken); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; width: 100%;
+}
+textarea { resize: vertical; min-height: 56px; }
+
+.field-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.field-label-row label { margin: 0; }
+
+/* ── lemma-suggest: small ghost action, verb-only ───────────────────────── */
+.lemma-row { display: flex; gap: 8px; align-items: center; }
+.lemma-row input { flex: 1; }
+.lemma-suggest-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  padding: 7px 10px; border-radius: var(--radius);
+  border: 1px dashed var(--border); background: transparent; color: var(--text-dim);
+  cursor: pointer; white-space: nowrap;
+}
+.lemma-suggest-btn:hover { border-style: solid; border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+.lemma-suggest-btn .ic { font-size: 12px; }
+.lemma-hint { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+
+/* ── the combined suggest control: toggle + live query, one pill ───────── */
+.suggest-control {
+  display: flex; align-items: stretch; border: 1px solid var(--border);
+  border-radius: 999px; overflow: hidden; background: var(--bg-sunken);
+  transition: border-color 150ms ease;
+}
+.suggest-control:focus-within { border-color: var(--accent); }
+.suggest-toggle {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 12px; font-weight: 700;
+  padding: 7px 13px; border: none; background: transparent; color: var(--accent-text);
+  cursor: pointer; white-space: nowrap;
+}
+.suggest-toggle:hover { background: var(--accent-soft); }
+.suggest-toggle .count {
+  font-size: 10px; font-weight: 700; color: #fff; background: var(--accent);
+  border-radius: 999px; padding: 1px 6px; margin-left: 2px;
+}
+.suggest-control-divider { width: 1px; background: var(--border); margin: 6px 0; }
+.suggest-query {
+  flex: 1; min-width: 0; border: none; background: transparent; color: var(--text);
+  font: inherit; font-size: 12.5px; font-family: ui-monospace, monospace;
+  padding: 7px 12px 7px 10px; outline: none;
+}
+.suggest-query::placeholder { color: var(--text-faint); font-family: system-ui, sans-serif; }
+
+/* ── suggestion panel: progressive disclosure per provider ──────────────── */
+.suggest-panel { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.provider-row {
+  background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: 10px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.provider-row-head { display: flex; align-items: center; gap: 8px; }
+.provider-name { font-family: ui-monospace, monospace; font-weight: 600; font-size: 12px; color: var(--text-dim); }
+.provider-spacer { flex: 1; }
+.provider-edit-btn, .provider-retry-btn {
+  width: 24px; height: 24px; border-radius: 50%; border: 1px solid transparent;
+  background: transparent; color: var(--text-faint); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; padding: 0;
+}
+.provider-edit-btn:hover, .provider-retry-btn:hover { background: var(--bg-elevated); color: var(--text); border-color: var(--border); }
+.provider-own-query {
+  display: none; gap: 6px; margin: 2px 0 0;
+}
+.provider-own-query.revealed { display: flex; }
+.provider-own-query input {
+  font-family: ui-monospace, monospace; font-size: 12px; padding: 5px 8px;
+}
+.candidate-row {
+  display: flex; align-items: center; gap: 10px; font-size: 13px;
+  padding-top: 7px; border-top: 1px solid var(--border-soft);
+}
+.candidate-text { font-family: ui-monospace, monospace; }
+.candidate-meta { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+.use-btn {
+  margin-left: auto; flex: none;
+  border: 1px solid var(--ok); color: var(--ok); background: transparent;
+  border-radius: var(--radius); padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.use-btn:hover { background: var(--ok); color: #fff; }
+
+.note { font-size: 11.5px; color: var(--text-faint); margin-top: 10px; }
+code { font-family: ui-monospace, monospace; background: var(--bg-sunken); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mock-banner">
+    Static mockup for the <code>lemma-first-suggestions</code> change — no
+    live data, demonstrates layout/interaction only. Compare against
+    <code>ui/index.html</code>'s current note editor.
+  </div>
+
+  <div>
+    <h1>Note editor — Text / Lemma (pos = verb)</h1>
+    <p class="sub">The two changes shown below: a verb-only "suggest lemma from text" action, and every suggestion control switching from <em>text</em> to <em>lemma → text fallback</em>.</p>
+  </div>
+
+  <div class="panel">
+    <div class="field">
+      <label>Text (source language)</label>
+      <textarea>å spise</textarea>
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label>Lemma</label>
+      </div>
+      <div class="lemma-row">
+        <input type="text" value="spise">
+        <button class="lemma-suggest-btn" type="button" title="Derive from Text, å-prefix stripped">
+          <span class="ic">✦</span> From text
+        </button>
+      </div>
+      <div class="lemma-hint">Shown only for <code>pos = verb</code> — strips the leading "å " infinitive marker.</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label-row">
+        <label>Transcription</label>
+      </div>
+      <input type="text" value="">
+      <div class="suggest-control">
+        <button class="suggest-toggle" type="button">
+          ✨ Suggest pronunciations <span class="count">3</span>
+        </button>
+        <div class="suggest-control-divider"></div>
+        <input class="suggest-query" type="text" value="spise" spellcheck="false">
+      </div>
+      <div class="note">Query defaults to <code>lemma</code> (shown here: <code>spise</code>, not <code>å spise</code>) — editing it re-fires every provider below together.</div>
+
+      <div class="suggest-panel">
+        <div class="provider-row">
+          <div class="provider-row-head">
+            <span class="provider-name">nst</span>
+            <span class="provider-spacer"></span>
+            <button class="provider-edit-btn" title="Override just this provider's query">✎</button>
+            <button class="provider-retry-btn" title="Retry">↻</button>
+          </div>
+          <div class="candidate-row">
+            <span class="candidate-text">ˈspiːsə</span>
+            <span class="candidate-meta">standard</span>
+            <button class="use-btn">Use</button>
+          </div>
+        </div>
+
+        <div class="provider-row">
+          <div class="provider-row-head">
+            <span class="provider-name">kaikki</span>
+            <span class="provider-spacer"></span>
+            <button class="provider-edit-btn" title="Override just this provider's query">✎</button>
+            <button class="provider-retry-btn" title="Retry">↻</button>
+          </div>
+          <div class="candidate-row">
+            <span class="candidate-text">ˈspiːsə</span>
+            <span class="candidate-meta"></span>
+            <button class="use-btn">Use</button>
+          </div>
+        </div>
+
+        <div class="provider-row">
+          <div class="provider-row-head">
+            <span class="provider-name">dictcc_api</span>
+            <span class="provider-spacer"></span>
+            <button class="provider-edit-btn revealed-demo" title="Override just this provider's query">✎</button>
+            <button class="provider-retry-btn" title="Retry">↻</button>
+          </div>
+          <!-- Progressive disclosure: this row's own override is revealed
+               (one provider had no entry for the shared query and the
+               operator clicked the pencil to try something else), every
+               other row stays collapsed to just its result. -->
+          <div class="provider-own-query revealed">
+            <input type="text" value="å spise" placeholder="override just for dictcc_api">
+            <button class="provider-retry-btn" title="Retry with this input" style="width:auto; border-radius: var(--radius); padding: 4px 10px; color: var(--accent-text);">↻ Retry</button>
+          </div>
+          <div class="candidate-row">
+            <span class="candidate-text">no entry for "spise" — try the override above</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div>
+    <h1>Audio panel (sidebar)</h1>
+    <p class="sub">Same combined control, narrower column — the pill wraps its query input down to available width instead of needing its own row.</p>
+  </div>
+
+  <div class="panel" style="max-width:280px;">
+    <div class="field-label-row" style="margin-bottom:10px;">
+      <h1 style="font-size:13px;">Audio</h1>
+    </div>
+    <div class="suggest-control">
+      <button class="suggest-toggle" type="button">✨ Suggest <span class="count">2</span></button>
+      <div class="suggest-control-divider"></div>
+      <input class="suggest-query" type="text" value="spise" spellcheck="false">
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
