@@ -225,6 +225,18 @@ def register_enrich_routes(app):
                 # format is not available" in a case where an audio-only
                 # stream was actually fine on its own).
                 "-f", "bestaudio/best",
+                # Pin extraction to player clients whose signed URLs
+                # actually work via ffmpeg's own plain HTTP GET (what
+                # --download-sections hands the URL to) — discovered live
+                # that yt-dlp's unrestricted client rotation can surface a
+                # format from a client (e.g. "visionos") whose URL 403s under
+                # ffmpeg even though yt-dlp itself resolved it successfully.
+                # android/web_embedded were the two that worked reliably
+                # across repeated tests; this is the kind of pin that can
+                # need revisiting as YouTube's own client support shifts
+                # (same already-accepted maintenance risk as the yt-dlp
+                # version itself, design.md).
+                "--extractor-args", "youtube:player_client=android,web_embedded",
                 "--download-sections", f"*{start}-{end}",
                 # Cut on exact section boundaries rather than the nearest
                 # keyframe — yt-dlp's own recommendation for

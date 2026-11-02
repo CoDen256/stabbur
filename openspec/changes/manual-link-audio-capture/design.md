@@ -126,6 +126,25 @@ tool — this is a cheap, standard safeguard, not a scope-creeping feature.
   Docker image (via its own install script — no apt package) and
   `shell.nix`, so it's present wherever stabbur runs, not just in whichever
   environment happened to have it already.
+- **[Risk]** (found live, post-implementation) yt-dlp's `--cookies` writes
+  updated cookies back to the given file after the session, not just reads
+  it — crashes with `OSError: Read-only file system` against a `:ro`-mounted
+  cookies file (the natural way to mount an operator's exported session
+  file). → **Mitigation**: the route copies the configured file into its own
+  per-request temp directory and points `--cookies` at that copy, so the
+  configured file can stay read-only and is never at risk of being mutated
+  by yt-dlp.
+- **[Risk]** (found live, post-implementation) yt-dlp's unrestricted player-
+  client rotation can surface a format whose signed URL only works for
+  yt-dlp's own downloader, not for ffmpeg's plain HTTP GET (what
+  `--download-sections` hands the URL to) — observed as a 403 from a
+  `visionos`-client-sourced URL. → **Mitigation**:
+  `--extractor-args "youtube:player_client=android,web_embedded"` restricts
+  extraction to two clients confirmed (by repeated live testing) to produce
+  ffmpeg-fetchable URLs. Same "needs ongoing maintenance" caveat as the
+  version pin above — this is the second time that accepted risk has
+  materialized in practice, not a one-off, and this specific client pin may
+  itself need revisiting as YouTube's own client support shifts.
 - **[Risk]** A pasted Forvo "direct link" that's actually the word page
   (HTML, not audio) would otherwise store garbage. → **Mitigation**: D2's
   content-type/size sanity check surfaces this as a clear error instead of a
