@@ -112,7 +112,12 @@
                   <textarea id="e_text" required></textarea>
                   <div class="suggest-panel" id="e_stt_suggest" data-kind="stt" data-prefix="e"></div>
                 </div>
-                <div class="field" id="e_lemma_field"><label for="e_lemma">Lemma</label><input id="e_lemma" type="text"></div>
+                <div class="field" id="e_lemma_field">
+                  <div class="field-label-row"><label for="e_lemma">Lemma</label>
+                    <button type="button" class="lemma-suggest-btn" id="e_lemma_suggest_btn" style="display:none" title="Derive from Text, å-prefix stripped">✦ From text</button>
+                  </div>
+                  <input id="e_lemma" type="text">
+                </div>
               </div>
               <div class="field-row">
                 <div class="field"><label for="e_type">Type</label>
@@ -149,18 +154,24 @@
                 </div>
               </div>
               <div class="field" id="e_transcription_field">
-                <div class="field-label-row"><label for="e_transcription">Transcription</label>
-                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_ipa_suggest">Suggest pronunciations</button>
-                </div>
+                <div class="field-label-row"><label for="e_transcription">Transcription</label></div>
                 <input id="e_transcription" type="text">
+                <div class="suggest-control">
+                  <button type="button" class="suggest-toggle" data-suggest-toggle="e_ipa_suggest">✨ Suggest pronunciations<span class="count" id="e_ipa_suggest_count" style="display:none"></span></button>
+                  <div class="suggest-control-divider"></div>
+                  <input type="text" class="suggest-query" id="e_ipa_suggest_query" spellcheck="false">
+                </div>
                 <div class="suggest-panel" id="e_ipa_suggest" data-kind="ipa" data-prefix="e"></div>
               </div>
               <div class="field">
-                <div class="field-label-row"><label>Translations</label>
-                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_translations_suggest">Suggest translations</button>
-                </div>
+                <div class="field-label-row"><label>Translations</label></div>
                 <div id="e_translations_list" class="translation-list"></div>
                 <button type="button" class="btn-ghost" id="e_add_translation">+ Add translation</button>
+                <div class="suggest-control">
+                  <button type="button" class="suggest-toggle" data-suggest-toggle="e_translations_suggest">✨ Suggest translations<span class="count" id="e_translations_suggest_count" style="display:none"></span></button>
+                  <div class="suggest-control-divider"></div>
+                  <input type="text" class="suggest-query" id="e_translations_suggest_query" spellcheck="false">
+                </div>
                 <div class="suggest-panel" id="e_translations_suggest" data-kind="translations" data-prefix="e"></div>
               </div>
               <div class="field" id="e_inflections_field" style="display:none">
@@ -194,7 +205,11 @@
           <div class="panel panel-pad">
             <div class="field-label-row" style="margin-bottom:12px;">
               <h3 style="font-size:13px;">Audio</h3>
-              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_tts_suggest">Suggest</button>
+            </div>
+            <div class="suggest-control" style="margin-bottom:12px;">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="e_tts_suggest">✨ Suggest<span class="count" id="e_tts_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="e_tts_suggest_query" spellcheck="false">
             </div>
             <div id="noteAudioNone" class="inline-note">No audio attached.</div>
             <div class="suggest-panel" id="e_tts_suggest" data-kind="tts" data-prefix="e"></div>
@@ -313,20 +328,31 @@
           </div>
           <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
           <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>
-          <div class="field" id="c_lemma_field"><label for="c_lemma">Lemma</label><input id="c_lemma" type="text"></div>
-          <div class="field" id="c_transcription_field">
-            <div class="field-label-row"><label for="c_transcription">Transcription</label>
-              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_ipa_suggest">Suggest pronunciations</button>
+          <div class="field" id="c_lemma_field">
+            <div class="field-label-row"><label for="c_lemma">Lemma</label>
+              <button type="button" class="lemma-suggest-btn" id="c_lemma_suggest_btn" style="display:none" title="Derive from Text, å-prefix stripped">✦ From text</button>
             </div>
+            <input id="c_lemma" type="text">
+          </div>
+          <div class="field" id="c_transcription_field">
+            <div class="field-label-row"><label for="c_transcription">Transcription</label></div>
             <input id="c_transcription" type="text">
+            <div class="suggest-control">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_ipa_suggest">✨ Suggest pronunciations<span class="count" id="c_ipa_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_ipa_suggest_query" spellcheck="false">
+            </div>
             <div class="suggest-panel" id="c_ipa_suggest" data-kind="ipa" data-prefix="c"></div>
           </div>
           <div class="field">
-            <div class="field-label-row"><label>Translations</label>
-              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_translations_suggest">Suggest translations</button>
-            </div>
+            <div class="field-label-row"><label>Translations</label></div>
             <div id="c_translations_list" class="translation-list"></div>
             <button type="button" class="btn-ghost" id="c_add_translation">+ Add translation</button>
+            <div class="suggest-control">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_translations_suggest">✨ Suggest translations<span class="count" id="c_translations_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_translations_suggest_query" spellcheck="false">
+            </div>
             <div class="suggest-panel" id="c_translations_suggest" data-kind="translations" data-prefix="c"></div>
           </div>
           <div class="field" id="c_inflections_field" style="display:none">
@@ -343,8 +369,11 @@
             <select id="c_grammar_rule_id"><option value="">— none —</option></select>
           </div>
           <div class="field">
-            <div class="field-label-row"><label for="c_audio_file">Audio (optional — can also attach later)</label>
-              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_tts_suggest">Suggest</button>
+            <div class="field-label-row"><label for="c_audio_file">Audio (optional — can also attach later)</label></div>
+            <div class="suggest-control">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_tts_suggest">✨ Suggest<span class="count" id="c_tts_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_tts_suggest_query" spellcheck="false">
             </div>
             <div id="c_audio_suggest_chosen" class="inline-note" style="display:none"></div>
             <div class="suggest-panel" id="c_tts_suggest" data-kind="tts" data-prefix="c"></div>

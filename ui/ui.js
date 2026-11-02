@@ -414,6 +414,8 @@ async function renderNoteDetail(id) {
 
   updateEditInflectionFields(note.pos, note.inflections);
   updateEditFieldVisibility();
+  updateLemmaSuggestVisibility('e', 'e_pos_select', 'e_pos_custom');
+  resetSuggestQueries('e');
   updateNoAudioWarning();
   updateNoteJsonView();
   renderAudioSection(note);
@@ -451,6 +453,7 @@ wirePosCustomToggle('e_pos_select', 'e_pos_custom', () => {
     ? typedValues
     : (currentNote && currentNote.pos === pos ? currentNote.inflections : null);
   updateEditInflectionFields(pos, values);
+  updateLemmaSuggestVisibility('e', 'e_pos_select', 'e_pos_custom');
   updateNoteJsonView();
 });
 document.getElementById('e_add_translation').addEventListener('click', () => {
@@ -497,6 +500,7 @@ function updateNoAudioWarning() {
 document.getElementById('noteEditForm').addEventListener('input', () => {
   updateNoteJsonView();
   updateNoAudioWarning();
+  syncSuggestQueries('e');
 });
 
 document.getElementById('noteSaveBtn').addEventListener('click', async () => {
@@ -866,6 +870,7 @@ function updateNewNoteFieldVisibility() {
     document.getElementById('c_inflections_field').style.display = 'none';
     document.getElementById('c_inflections_fields').innerHTML = '';
   }
+  updateLemmaSuggestVisibility('c', 'c_pos', 'c_pos_custom');
 }
 
 function updateNewNoteInflectionFields() {
@@ -873,6 +878,7 @@ function updateNewNoteInflectionFields() {
   const shaped = !!INFLECTION_SHAPES[pos];
   document.getElementById('c_inflections_field').style.display = shaped ? 'block' : 'none';
   renderInflectionFields('c_inflections_fields', pos);
+  updateLemmaSuggestVisibility('c', 'c_pos', 'c_pos_custom');
 }
 
 wirePosCustomToggle('c_pos', 'c_pos_custom', updateNewNoteInflectionFields);
@@ -885,6 +891,7 @@ async function renderNewNote() {
   renderTranslationRows('c_translations_list', [], null);
   updateNewNoteFieldVisibility();
   updateNewNoteInflectionFields();
+  resetSuggestQueries('c');
   await populateGrammarRuleSelect(document.getElementById('c_grammar_rule_id'), null);
 }
 
@@ -949,6 +956,10 @@ async function submitNewNote(status) {
   location.hash = `#/notes/${body.id}`;
 }
 
+document.getElementById('createForm').addEventListener('input', () => {
+  syncSuggestQueries('c');
+});
+
 document.getElementById('createForm').addEventListener('submit', (e) => {
   e.preventDefault();
   submitNewNote('draft');
@@ -1011,6 +1022,91 @@ async function fetchEnrichProviders() {
   return status === 200 ? body : {};
 }
 
+// ── combined suggest controls: live query sync + Enter-to-fire + counts ──
+
+function querySuggestControls(prefix) {
+  return Array.from(document.querySelectorAll('.suggest-control')).filter((control) => {
+    const btn = control.querySelector('[data-suggest-toggle]');
+    const panel = btn && document.getElementById(btn.dataset.suggestToggle);
+    return panel && panel.dataset.prefix === prefix;
+  });
+}
+
+// Syncs every suggest-control's query field to the current lemma||text,
+// skipping any control the operator has directly edited (`dirty`) so an
+// unrelated field edit never clobbers a deliberate override.
+function syncSuggestQueries(prefix) {
+  const value = defaultSuggestQuery(prefix);
+  querySuggestControls(prefix).forEach((control) => {
+    const input = control.querySelector('.suggest-query');
+    if (input && input.dataset.dirty !== '1') input.value = value;
+  });
+}
+
+// Called when a note is (re)loaded into a form — clears any prior dirty
+// state so the new note starts with every query back in sync.
+function resetSuggestQueries(prefix) {
+  querySuggestControls(prefix).forEach((control) => {
+    const input = control.querySelector('.suggest-query');
+    if (input) delete input.dataset.dirty;
+  });
+  syncSuggestQueries(prefix);
+}
+
+async function updateSuggestCounts() {
+  const catalog = await fetchEnrichProviders();
+  document.querySelectorAll('.suggest-control').forEach((control) => {
+    const btn = control.querySelector('[data-suggest-toggle]');
+    const panel = btn && document.getElementById(btn.dataset.suggestToggle);
+    const countEl = control.querySelector('.count');
+    if (!panel || !countEl) return;
+    const count = (catalog[panel.dataset.kind] || []).length;
+    countEl.textContent = String(count);
+    countEl.style.display = count > 0 ? '' : 'none';
+  });
+}
+
+document.querySelectorAll('.suggest-control').forEach((control) => {
+  const btn = control.querySelector('[data-suggest-toggle]');
+  const input = control.querySelector('.suggest-query');
+  if (!btn || !input) return;
+  input.addEventListener('input', () => { input.dataset.dirty = '1'; });
+  // Enter fires the panel whether it's closed (opens it) or already open
+  // (re-fires every provider with the edited value) — no fire-on-keystroke,
+  // matching every other suggest input's manual-trigger convention.
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const panel = document.getElementById(btn.dataset.suggestToggle);
+    if (panel) openSuggestPanel(panel);
+  });
+});
+updateSuggestCounts();
+
+// ── verb-only "From text" lemma-suggest button ───────────────────────────
+
+function deriveLemmaFromText(text) {
+  return text.trim().replace(/^å\s+/i, '');
+}
+
+function updateLemmaSuggestVisibility(prefix, selectId, customId) {
+  const pos = getPosValue(selectId, customId);
+  const btn = document.getElementById(`${prefix}_lemma_suggest_btn`);
+  if (btn) btn.style.display = pos === 'verb' ? '' : 'none';
+}
+
+function wireLemmaSuggestButton(prefix, textId, lemmaId) {
+  const btn = document.getElementById(`${prefix}_lemma_suggest_btn`);
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const lemmaEl = document.getElementById(lemmaId);
+    lemmaEl.value = deriveLemmaFromText(document.getElementById(textId).value);
+    lemmaEl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+wireLemmaSuggestButton('e', 'e_text', 'e_lemma');
+wireLemmaSuggestButton('c', 'c_text', 'c_lemma');
+
 function enrichEl(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
@@ -1048,6 +1144,30 @@ function markSuggestUsed(btn) {
 function suggestFieldValue(prefix, field) {
   const el = document.getElementById(`${prefix}_${field}`);
   return el ? el.value.trim() : '';
+}
+
+// lemma-first-suggestions: type=word notes default every suggestion query
+// to `lemma`, falling back to `text` only when no lemma is set (non-`word`
+// types never have a lemma field to begin with, so this needs no separate
+// type check — an empty/hidden lemma already falls through).
+function defaultSuggestQuery(prefix) {
+  return suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
+}
+
+// The combined suggest control (toggle + live query) sitting next to a
+// panel's toggle button, if that kind has one (ipa/tts/translations do;
+// inflections/stt don't). Reading the query from here — not recomputing a
+// fresh default — means an edit made before the panel was even opened is
+// respected when it fires (lemma-first-suggestions design D3).
+function suggestControlInput(panelId) {
+  const btn = document.querySelector(`[data-suggest-toggle="${panelId}"]`);
+  const control = btn ? btn.closest('.suggest-control') : null;
+  return control ? control.querySelector('.suggest-query') : null;
+}
+
+function suggestControlQueryValue(panelId, prefix) {
+  const input = suggestControlInput(panelId);
+  return input ? input.value.trim() : defaultSuggestQuery(prefix);
 }
 
 // stabbur's `source_lang` is deliberately language-agnostic (CLAUDE.md) and
@@ -1145,20 +1265,38 @@ function renderManualLinkState(provider, url, prefix) {
   return wrap;
 }
 
+// `defaultQuery` is the panel's shared query (the suggest-control's current
+// value) — every row fires against it on open. A per-row override stays
+// hidden until the ✎ button reveals it (progressive disclosure,
+// lemma-first-suggestions design D5): revealed, it starts empty rather than
+// copying `defaultQuery`, so it reads unambiguously as "something
+// different," not a copy. Retrying uses the override's value if revealed
+// and non-empty, otherwise falls back to `defaultQuery`.
 function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang) {
   const row = enrichEl(`
     <div class="provider-row">
-      <div class="provider-head"><span class="provider-name">${escapeHtml(provider)}</span></div>
+      <div class="provider-head">
+        <span class="provider-name">${escapeHtml(provider)}</span>
+        <span class="provider-spacer"></span>
+        <button class="icon-btn provider-edit-btn" type="button" title="Override just this provider's query">✎</button>
+        <button class="icon-btn retry-btn" type="button" title="Retry">↻</button>
+      </div>
       <div class="provider-query">
-        <input type="text" class="query-input" value="${escapeHtml(defaultQuery)}">
-        <button class="icon-btn retry-btn" type="button" title="Ask again with this input">↻</button>
+        <input type="text" class="query-input" placeholder="override just for ${escapeHtml(provider)}">
       </div>
       <div class="provider-result"></div>
     </div>
   `);
   const resultBox = row.querySelector('.provider-result');
+  const queryWrap = row.querySelector('.provider-query');
   const input = row.querySelector('.query-input');
+  const editBtn = row.querySelector('.provider-edit-btn');
   const retryBtn = row.querySelector('.retry-btn');
+
+  function currentQuery() {
+    const override = input.value.trim();
+    return (queryWrap.classList.contains('revealed') && override) ? override : defaultQuery;
+  }
 
   async function fire(queryValue) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
@@ -1179,10 +1317,16 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
     body.candidates.forEach((c) => resultBox.appendChild(renderCandidate(c, provider)));
   }
 
+  editBtn.addEventListener('click', () => {
+    queryWrap.classList.toggle('revealed');
+    editBtn.classList.toggle('active', queryWrap.classList.contains('revealed'));
+    if (queryWrap.classList.contains('revealed')) input.focus();
+  });
+
   retryBtn.addEventListener('click', () => {
     retryBtn.classList.add('spinning');
     setTimeout(() => retryBtn.classList.remove('spinning'), 650);
-    fire(input.value.trim());
+    fire(currentQuery());
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
 
@@ -1392,7 +1536,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
   return wrap;
 }
 
-function buildTranslationsSuggestPanel(prefix, providers) {
+function buildTranslationsSuggestPanel(prefix, providers, defaultQuery) {
   const wrap = enrichEl(`
     <div>
       <div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>
@@ -1404,7 +1548,6 @@ function buildTranslationsSuggestPanel(prefix, providers) {
     </div>
   `);
   const groupsEl = wrap.querySelector('.lang-groups');
-  const defaultQuery = suggestFieldValue(prefix, 'text');
 
   function addLangGroup(lang) {
     lang = lang.trim().toLowerCase();
@@ -1507,12 +1650,13 @@ async function openSuggestPanel(panelEl) {
   }
 
   if (kind === 'translations') {
-    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers));
+    const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
+    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers, defaultQuery));
     return;
   }
   if (kind === 'inflections') {
     panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>read-only — copy what you need</span></div>`));
-    const defaultQuery = suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
+    const defaultQuery = defaultSuggestQuery(prefix);
     providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery)));
     return;
   }
@@ -1523,7 +1667,7 @@ async function openSuggestPanel(panelEl) {
   }
 
   panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>`));
-  const defaultQuery = suggestFieldValue(prefix, 'text');
+  const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
   const renderCandidate = kind === 'ipa' ? renderIpaCandidate(prefix) : renderTtsCandidate(prefix);
   providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate)));
 }
