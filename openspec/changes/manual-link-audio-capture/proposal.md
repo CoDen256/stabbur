@@ -1,3 +1,9 @@
+> **Status at archive time: Forvo capture shipped and confirmed working.
+> filmot/YouTube capture is implemented but BLOCKED — still failing against
+> real YouTube after four rounds of live-debugged fixes, postponed by
+> operator decision. See `tasks.md` task 6.3 for the full history before
+> picking this back up.**
+
 ## Why
 
 smia's `forvo` and `filmot` `/tts` providers never had (and will never have) a

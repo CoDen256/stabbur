@@ -1,3 +1,11 @@
+> **Status: archived with one item BLOCKED, by operator decision (not abandoned).**
+> Forvo capture is confirmed working end-to-end. filmot/YouTube capture is
+> fully implemented and has survived four rounds of real-world debugging
+> (stale pin, bot-check/JS-runtime, read-only cookies/format-selection,
+> player-client 403) — each previous failure reproduced and fixed — but the
+> operator's most recent retry still failed, and further iteration was
+> explicitly postponed rather than continued live. See task 6.3 below.
+
 ## 1. Dependencies
 
 - [x] 1.1 Add `yt-dlp` to `requirements.txt`.
@@ -30,7 +38,7 @@
 
 - [x] 6.1 Manually verify: a `forvo` row shows the "Open forvo.com ↗" link instead of "No entry found." **Confirmed by the operator in the real UI (reported the next two bugs from this exact screen).**
 - [x] 6.2 Manually verify: pasting a real Forvo audio link attaches audio and the trim UI appears. **Operator first hit a 403 (fixed in round 1 of section 7), then confirmed "forvo working properly" after the fix.**
-- [ ] 6.3 Manually verify: pasting a real filmot-found YouTube URL+timecode downloads a short clip, attaches it, and the trim UI appears. **Three rounds of real failures fixed so far (stale pin/flags → bot-check/JS-runtime → read-only cookies file/format selection), each independently reproduced and confirmed resolved directly against `yt-dlp` outside the route. Still not confirmed working end-to-end through the actual browser → route → attach → trim path on the operator's deployment.**
+- [ ] 6.3 **BLOCKED (postponed by operator, not abandoned).** Manually verify: pasting a real filmot-found YouTube URL+timecode downloads a short clip, attaches it, and the trim UI appears. Four rounds of real failures were found and fixed (stale pin/flags → bot-check/JS-runtime → read-only cookies file/format selection → player-client 403), each independently reproduced and confirmed resolved directly against `yt-dlp` outside the route — but the operator's own retry after round 4's fix still failed, and the operator chose to postpone further debugging rather than continue live. Next time this is picked up: get the operator's exact current error first (the failure mode has changed every round so far — don't assume it's a repeat of any prior round) before changing anything.
 - [x] 6.4 Manually verify: pasting a non-audio link, a URL with no timecode, and an unsafe (private-address) URL each fail with a clear message and no blob is created. **Verified via the full automated test suite (67/67) run against a real throwaway Postgres container, plus `_validate_fetch_url`/`_parse_youtube_timecode` exercised standalone.**
 
 ## 7. Fixes from live operator testing
