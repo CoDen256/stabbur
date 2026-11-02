@@ -288,6 +288,16 @@ def test_filmot_capture_passes_cookies_file_when_configured(client, monkeypatch,
 
     def fake_run(cmd, check, capture_output, text, timeout):
         seen["cmd"] = cmd
+        cookies_index = cmd.index("--cookies")
+        cookies_arg = cmd[cookies_index + 1]
+        # --cookies must point at a per-request copy, never the configured
+        # path itself (yt-dlp writes back to this file, which must never
+        # corrupt the operator's original exported cookies or require it to
+        # be writable) — checked here, while the route's temp dir is still
+        # alive, since it's cleaned up by the time this function returns.
+        assert cookies_arg != str(cookies_file)
+        with open(cookies_arg) as f:
+            seen["cookies_content"] = f.read()
         out_index = cmd.index("-o")
         out_template = cmd[out_index + 1]
         with open(out_template.replace("%(ext)s", "mp3"), "wb") as f:
@@ -301,8 +311,7 @@ def test_filmot_capture_passes_cookies_file_when_configured(client, monkeypatch,
         headers=AUTH,
     )
     assert resp.status_code == 200
-    cookies_index = seen["cmd"].index("--cookies")
-    assert seen["cmd"][cookies_index + 1] == str(cookies_file)
+    assert seen["cookies_content"] == "# Netscape HTTP Cookie File\n"
 
 
 def test_filmot_capture_ignores_cookies_env_when_file_missing(client, monkeypatch, tmp_path):

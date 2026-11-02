@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -217,6 +218,13 @@ def register_enrich_routes(app):
             cmd = [
                 "yt-dlp",
                 "--no-playlist",
+                # Audio-only, not yt-dlp's default video+audio selection —
+                # we only ever want the sound, so this skips ever needing a
+                # video format at all (discovered live: the default
+                # selection's merge requirement failed with "Requested
+                # format is not available" in a case where an audio-only
+                # stream was actually fine on its own).
+                "-f", "bestaudio/best",
                 "--download-sections", f"*{start}-{end}",
                 # Cut on exact section boundaries rather than the nearest
                 # keyframe — yt-dlp's own recommendation for
@@ -236,7 +244,17 @@ def register_enrich_routes(app):
             # the fix, not touching this route again.
             cookies_file = os.environ.get("YTDLP_COOKIES_FILE")
             if cookies_file and os.path.exists(cookies_file):
-                cmd += ["--cookies", cookies_file]
+                # yt-dlp doesn't just read this file, it writes updated
+                # cookies back to it after the session — discovered live as
+                # a crash (`OSError: Read-only file system`) against a
+                # read-only-mounted cookies file. Working off a per-request
+                # copy means --cookies always points at something writable
+                # regardless of how the configured file is mounted, and a
+                # given request can never corrupt the operator's original
+                # exported cookies file.
+                cookies_copy = os.path.join(tmp_dir, "cookies.txt")
+                shutil.copyfile(cookies_file, cookies_copy)
+                cmd += ["--cookies", cookies_copy]
             cmd.append(url)
             try:
                 subprocess.run(
