@@ -54,7 +54,7 @@ services:
       # Named volume, not baked into the image: blob bytes should survive
       # container rebuilds (D45 — stabbur owns the canonical learning audio).
       - stabbur-blobs:/app/blobs
-      # - ./cookies.txt:/app/cookies.txt:ro
+      - ./cookies.txt:/app/cookies.txt:ro
     ports:
       - "5056:5056"
     networks:
