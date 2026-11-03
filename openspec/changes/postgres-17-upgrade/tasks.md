@@ -8,17 +8,16 @@ unattended on a first attempt.
 
 ## 1. Compose file change
 
-- [ ] 1.1 `stabbur/compose.yaml`: change `stabbur-postgres`'s `image:` from
+- [x] 1.1 `stabbur/compose.yaml`: change `stabbur-postgres`'s `image:` from
       `postgres:16` to `postgres:17-alpine` (matching `mjolnir-postgres`'s
-      exact tag, D-U3).
-- [ ] 1.2 Same file: change the volume reference from `stabbur-pg-data` to
-      a new name (e.g. `stabbur-pg-data-17`), with an explicit `name:
+      exact tag, D-U3). Verified via `docker compose config --quiet`.
+- [x] 1.2 Same file: change the volume reference from `stabbur-pg-data` to
+      a new name (`stabbur-pg-data-17`), with an explicit `name:
       stabbur_stabbur-pg-data-17` override (same reasoning as the existing
       volumes' own `name:` overrides — identical volume whether brought up
-      standalone or via `tun`'s `include:`). Do **not** remove the old
-      `stabbur-pg-data`/`stabbur_stabbur-pg-data` volume declaration yet —
-      leave it defined but unused, so `docker volume ls` still shows it
-      exists untouched.
+      standalone or via `tun`'s `include:`). The old `stabbur-pg-data`/
+      `stabbur_stabbur-pg-data` volume declaration is left in place,
+      unused, so `docker volume ls` still shows it exists untouched.
 
 ## 2. Migration (Operator — live production data)
 

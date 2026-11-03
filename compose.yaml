@@ -6,7 +6,12 @@
 # cosmetic.
 services:
   stabbur-postgres:
-    image: postgres:16
+    # postgres-17-upgrade: matches mjolnir-postgres's exact tag (D-U3) —
+    # not just "some 17" — so the planned unified backup service needs
+    # exactly one pg_dump client version, not two. Postgres major versions
+    # are not binary-compatible on disk (D-U2), so this pairs with a new
+    # volume name below, not an in-place upgrade of the old one.
+    image: postgres:17-alpine
     container_name: stabbur-postgres
     environment:
       POSTGRES_USER: stabbur
@@ -15,7 +20,7 @@ services:
     ports:
       - "5434:5432"   # published for local dev (native venv connecting in); drop for a locked-down deploy
     volumes:
-      - stabbur-pg-data:/var/lib/postgresql/data
+      - stabbur-pg-data-17:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stabbur"]
       interval: 2s
@@ -85,7 +90,13 @@ volumes:
   # the same volume at all — same underlying cause as the `tun-shared`
   # network needing an explicit shared name (D98); unnamed volumes have the
   # identical per-project-prefix problem.
+  # postgres-17-upgrade (D-U2): kept defined, deliberately unused, so the
+  # pre-upgrade data is never deleted as a side effect of this change —
+  # the operator removes it by hand (tasks.md 3.1) only after a self-chosen
+  # cool-down period confirming the migration went cleanly.
   stabbur-pg-data:
     name: stabbur_stabbur-pg-data
+  stabbur-pg-data-17:
+    name: stabbur_stabbur-pg-data-17
   stabbur-blobs:
     name: stabbur_stabbur-blobs
