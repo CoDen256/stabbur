@@ -377,18 +377,21 @@
             <select id="c_grammar_rule_id"><option value="">— none —</option></select>
           </div>
           <div class="field">
-            <div class="field-label-row"><label for="c_audio_file">Audio (optional — can also attach later)</label></div>
-            <div class="suggest-control">
+            <div class="field-label-row"><label>Audio (optional — can also attach later)</label></div>
+            <div id="c_audio_suggest_chosen" class="inline-note" style="display:none"></div>
+            <div class="suggest-control" style="margin-top:8px;">
               <button type="button" class="suggest-toggle" data-suggest-toggle="c_tts_suggest">✨ Suggest<span class="count" id="c_tts_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_tts_suggest_query" spellcheck="false">
             </div>
-            <div id="c_audio_suggest_chosen" style="display:none; margin-top:8px;">
-              <div class="inline-note" id="c_audio_suggest_chosen_note"></div>
-              <audio id="c_audio_suggest_chosen_player" controls style="width:100%; margin-top:6px;"></audio>
-            </div>
             <div class="suggest-panel" id="c_tts_suggest" data-kind="tts" data-prefix="c"></div>
-            <div class="dropzone"><input id="c_audio_file" type="file" accept="audio/*"></div>
+            <div class="provider-row" style="margin-top:7px;">
+              <div class="provider-head"><span class="provider-name">Manual upload</span></div>
+              <div class="candidate-row" style="border-top:none; padding-top:0;">
+                <input id="c_audio_file" type="file" accept="audio/*" style="flex:1; min-width:0;">
+                <button id="c_upload_audio_btn" class="use-btn" type="button">Use</button>
+              </div>
+            </div>
           </div>
           <div style="display:flex; gap:8px; margin-top:18px;">
             <button type="submit" class="btn-ghost" id="createDraftBtn">Save as draft</button>

@@ -846,25 +846,51 @@ function setNewNoteAudioFromSuggest(sha256, providerName, meta) {
   newNoteAudioFromSuggest = { sha256, providerName };
   document.getElementById('c_audio_file').value = '';
   const chosen = document.getElementById('c_audio_suggest_chosen');
-  chosen.style.display = 'block';
-  document.getElementById('c_audio_suggest_chosen_note').textContent =
-    `Will attach on save: ${providerName}${meta ? ` (${meta})` : ''}`;
-  // `sha256` here is already a real stabbur blob (tts/use stores it before
-  // returning), so the normal public /blob/ route plays it directly — no
-  // need for the smia-side preview route this change also adds.
-  document.getElementById('c_audio_suggest_chosen_player').src = `${API_BASE}/blob/${sha256}`;
+  chosen.style.cssText = 'display:flex; align-items:center; gap:8px;';
+  chosen.innerHTML = '';
+  chosen.appendChild(enrichEl(`<span>Will attach on save: ${escapeHtml(providerName)}${meta ? ` (${escapeHtml(meta)})` : ''}</span>`));
+  // `sha256` here is already a real stabbur blob (tts/use or the manual
+  // upload button both store it before returning), so the normal public
+  // /blob/ route plays it directly — no need for the smia-side preview
+  // route this change also adds for not-yet-stored candidates.
+  chosen.appendChild(buildAudioPreviewButton(`${API_BASE}/blob/${sha256}`));
 }
 
 function clearNewNoteAudioFromSuggest() {
   newNoteAudioFromSuggest = null;
   const chosen = document.getElementById('c_audio_suggest_chosen');
   chosen.style.display = 'none';
-  document.getElementById('c_audio_suggest_chosen_note').textContent = '';
-  document.getElementById('c_audio_suggest_chosen_player').removeAttribute('src');
+  chosen.innerHTML = '';
 }
 
 document.getElementById('c_audio_file').addEventListener('change', (e) => {
   if (e.target.files[0]) clearNewNoteAudioFromSuggest();
+});
+
+// Mirrors the existing-note sidebar's "Manual upload" card (uploadAudioBtn):
+// uploads eagerly on click rather than waiting for the whole note to be
+// saved, so the operator gets the same immediate preview as every other
+// provider's "Use" button, instead of only finding out what they picked
+// after creating the note.
+document.getElementById('c_upload_audio_btn').addEventListener('click', async () => {
+  const fileInput = document.getElementById('c_audio_file');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('c_upload_audio_btn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  const form = new FormData();
+  form.append('audio', file);
+  const uploadResp = await fetch(`${API_BASE}/blobs`, { method: 'POST', headers: authHeaders(), body: form });
+  const uploadBody = await uploadResp.json();
+  btn.disabled = false;
+  btn.textContent = originalLabel;
+  if (uploadResp.status !== 200) {
+    enrichToast('Upload failed');
+    return;
+  }
+  setNewNoteAudioFromSuggest(uploadBody.sha256, 'manual upload', file.name);
 });
 
 function updateNewNoteFieldVisibility() {
@@ -1117,6 +1143,33 @@ function enrichEl(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
   return t.content.firstChild;
+}
+
+// A small ▶/⏸ icon button standing in for a full native <audio controls>
+// bar, which doesn't fit next to a candidate's text/meta/Use button in a
+// narrow row or sidebar. Only one plays at a time — starting one pauses any
+// other preview already playing.
+function buildAudioPreviewButton(url) {
+  const wrap = enrichEl(`
+    <span class="audio-preview">
+      <button type="button" class="icon-btn preview-play-btn" title="Preview">▶</button>
+      <audio class="preview-audio" preload="none" src="${escapeHtml(url)}"></audio>
+    </span>
+  `);
+  const btn = wrap.querySelector('.preview-play-btn');
+  const audio = wrap.querySelector('.preview-audio');
+  btn.addEventListener('click', () => {
+    if (audio.paused) {
+      document.querySelectorAll('audio.preview-audio').forEach((a) => { if (a !== audio) a.pause(); });
+      audio.play();
+    } else {
+      audio.pause();
+    }
+  });
+  audio.addEventListener('play', () => { btn.textContent = '⏸'; btn.classList.add('playing'); });
+  audio.addEventListener('pause', () => { btn.textContent = '▶'; btn.classList.remove('playing'); });
+  audio.addEventListener('ended', () => { btn.textContent = '▶'; btn.classList.remove('playing'); });
+  return wrap;
 }
 
 function enrichToast(msg) {
@@ -1420,10 +1473,10 @@ function renderTtsCandidate(prefix) {
         <span class="candidate-text">${escapeHtml(idBit)}</span>
         <span class="candidate-meta">${escapeHtml(metaBits)}</span>
         <span class="candidate-spacer"></span>
-        ${previewSrc ? `<audio controls preload="none" class="candidate-preview" src="${escapeHtml(previewSrc)}"></audio>` : ''}
         <button class="use-btn" type="button">Use</button>
       </div>
     `);
+    if (previewSrc) r.querySelector('.candidate-spacer').after(buildAudioPreviewButton(previewSrc));
     r.querySelector('.use-btn').addEventListener('click', async (e) => {
       if (prefix !== 'e' && prefix !== 'c') return;
       if (prefix === 'e' && !currentNote) return;
