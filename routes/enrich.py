@@ -18,7 +18,7 @@ import tempfile
 from urllib.parse import parse_qs, urlparse
 
 import requests
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 import blob_storage
 import smia_client
@@ -132,6 +132,22 @@ def register_enrich_routes(app):
 
         stored_sha256 = blob_storage.store(data)
         return jsonify({"sha256": stored_sha256}), 200
+
+    @app.route("/api/enrich/tts/preview/<sha256>", methods=["GET"])
+    def get_enrich_tts_preview(sha256):
+        """Lets the operator listen to a /tts candidate before deciding to
+        "Use" it — streams smia's cached bytes straight through, unlike
+        tts/use, which commits them to stabbur's own blob store. No auth
+        header: an <audio src=...> element can't send one (same reasoning
+        as /blob/<sha256>'s exemption in auth.py), and the sha256 itself is
+        the only thing identifying the content, same as that route."""
+        try:
+            status, data, content_type = smia_client.get_bytes(f"/tts/{sha256}")
+        except smia_client.SmiaUnavailableError as exc:
+            return jsonify({"error": f"smia unavailable: {exc}"}), 502
+        if status != 200:
+            return jsonify({"error": "smia could not serve that candidate's audio"}), 502
+        return Response(data, mimetype=content_type)
 
     @app.route("/api/enrich/stt", methods=["POST"])
     def post_enrich_stt():

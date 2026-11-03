@@ -847,14 +847,20 @@ function setNewNoteAudioFromSuggest(sha256, providerName, meta) {
   document.getElementById('c_audio_file').value = '';
   const chosen = document.getElementById('c_audio_suggest_chosen');
   chosen.style.display = 'block';
-  chosen.textContent = `Will attach on save: ${providerName}${meta ? ` (${meta})` : ''}`;
+  document.getElementById('c_audio_suggest_chosen_note').textContent =
+    `Will attach on save: ${providerName}${meta ? ` (${meta})` : ''}`;
+  // `sha256` here is already a real stabbur blob (tts/use stores it before
+  // returning), so the normal public /blob/ route plays it directly — no
+  // need for the smia-side preview route this change also adds.
+  document.getElementById('c_audio_suggest_chosen_player').src = `${API_BASE}/blob/${sha256}`;
 }
 
 function clearNewNoteAudioFromSuggest() {
   newNoteAudioFromSuggest = null;
   const chosen = document.getElementById('c_audio_suggest_chosen');
   chosen.style.display = 'none';
-  chosen.textContent = '';
+  document.getElementById('c_audio_suggest_chosen_note').textContent = '';
+  document.getElementById('c_audio_suggest_chosen_player').removeAttribute('src');
 }
 
 document.getElementById('c_audio_file').addEventListener('change', (e) => {
@@ -1405,11 +1411,16 @@ function renderTtsCandidate(prefix) {
   return (c, providerName) => {
     const metaBits = [c.source, c.voice].filter(Boolean).join(' · ');
     const idBit = c.sha256 ? `${c.sha256.slice(0, 12)}…` : '';
+    // Listening before committing: streams smia's cached bytes directly
+    // (preview route, auth-exempt like /blob/) — never touches stabbur's
+    // blob store, unlike clicking "Use".
+    const previewSrc = c.sha256 ? `${API_BASE}/api/enrich/tts/preview/${c.sha256}` : '';
     const r = enrichEl(`
       <div class="candidate-row">
         <span class="candidate-text">${escapeHtml(idBit)}</span>
         <span class="candidate-meta">${escapeHtml(metaBits)}</span>
         <span class="candidate-spacer"></span>
+        ${previewSrc ? `<audio controls preload="none" class="candidate-preview" src="${escapeHtml(previewSrc)}"></audio>` : ''}
         <button class="use-btn" type="button">Use</button>
       </div>
     `);
@@ -1453,20 +1464,49 @@ function renderTtsCandidate(prefix) {
 // fix #1) — providers disagree with each other and stabbur's own
 // PoS-keyed fields often enough that auto-fill would silently hide real
 // ambiguity. Each paradigm key/value is its own click-to-copy cell.
+// Orders a paradigm's keys the same way the note form's own fields are
+// ordered (INFLECTION_SHAPES) instead of whatever order the provider's JSON
+// happened to use — a provider's own field order isn't guaranteed to match
+// (confirmed live: a verb paradigm coming back as infinitiv/perfektum/
+// presens/preteritum, not infinitiv/presens/preteritum/perfektum). Any key
+// outside the known shape (unexpected/extra provider key) is appended
+// after, never dropped.
+function orderedParadigmEntries(pos, paradigm) {
+  const shape = INFLECTION_SHAPES[pos] || [];
+  const known = shape.filter((k) => k in paradigm).map((k) => [k, paradigm[k]]);
+  const extra = Object.entries(paradigm).filter(([k]) => !shape.includes(k));
+  return known.concat(extra);
+}
+
+// Same progressive-disclosure shape as buildEnrichProviderRow (lemma-first-
+// suggestions): the shared query fires every provider on open, a per-
+// provider override stays hidden behind ✎ until needed. Candidates stay
+// read-only/copy-or-fill — never auto-filled (smia-enrichment-panel fix #1).
 function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
   const wrap = enrichEl(`
     <div class="provider-row">
-      <div class="provider-head"><span class="provider-name">${escapeHtml(provider)}</span></div>
+      <div class="provider-head">
+        <span class="provider-name">${escapeHtml(provider)}</span>
+        <span class="provider-spacer"></span>
+        <button class="icon-btn provider-edit-btn" type="button" title="Override just this provider's query">✎</button>
+        <button class="icon-btn retry-btn" type="button" title="Retry">↻</button>
+      </div>
       <div class="provider-query">
-        <input type="text" class="query-input" value="${escapeHtml(defaultQuery)}">
-        <button class="icon-btn retry-btn" type="button" title="Ask again with this input">↻</button>
+        <input type="text" class="query-input" placeholder="override just for ${escapeHtml(provider)}">
       </div>
       <div class="provider-result"></div>
     </div>
   `);
   const resultBox = wrap.querySelector('.provider-result');
+  const queryWrap = wrap.querySelector('.provider-query');
   const input = wrap.querySelector('.query-input');
+  const editBtn = wrap.querySelector('.provider-edit-btn');
   const retryBtn = wrap.querySelector('.retry-btn');
+
+  function currentQuery() {
+    const override = input.value.trim();
+    return (queryWrap.classList.contains('revealed') && override) ? override : defaultQuery;
+  }
 
   async function fire(queryValue) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
@@ -1502,9 +1542,9 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
         const grouped = new Set(groups.flat());
         rowsHtml = groups
           .map((group) => `<div class="inflection-row">${group.filter((k) => k in paradigm).map((k) => paradigmRow(k, paradigm[k])).join('')}</div>`)
-          .join('') + Object.entries(paradigm).filter(([k]) => !grouped.has(k)).map(([k, v]) => paradigmRow(k, v)).join('');
+          .join('') + orderedParadigmEntries(c.pos, paradigm).filter(([k]) => !grouped.has(k)).map(([k, v]) => paradigmRow(k, v)).join('');
       } else {
-        rowsHtml = Object.entries(paradigm).map(([k, v]) => paradigmRow(k, v)).join('');
+        rowsHtml = orderedParadigmEntries(c.pos, paradigm).map(([k, v]) => paradigmRow(k, v)).join('');
       }
 
       const block = enrichEl(`
@@ -1525,10 +1565,16 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
     });
   }
 
+  editBtn.addEventListener('click', () => {
+    queryWrap.classList.toggle('revealed');
+    editBtn.classList.toggle('active', queryWrap.classList.contains('revealed'));
+    if (queryWrap.classList.contains('revealed')) input.focus();
+  });
+
   retryBtn.addEventListener('click', () => {
     retryBtn.classList.add('spinning');
     setTimeout(() => retryBtn.classList.remove('spinning'), 650);
-    fire(input.value.trim());
+    fire(currentQuery());
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
 
@@ -1655,8 +1701,8 @@ async function openSuggestPanel(panelEl) {
     return;
   }
   if (kind === 'inflections') {
-    panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>read-only — copy what you need</span></div>`));
-    const defaultQuery = defaultSuggestQuery(prefix);
+    panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>copy or fill per field</span></div>`));
+    const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
     providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery)));
     return;
   }

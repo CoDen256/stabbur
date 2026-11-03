@@ -358,6 +358,7 @@ pre.json {
 .candidate-text { font-family: ui-monospace, monospace; font-size: 13.5px; }
 .candidate-meta { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .03em; }
 .candidate-spacer { flex: 1; }
+.candidate-preview { height: 28px; max-width: 170px; flex: none; }
 .use-btn {
   border: 1px solid var(--ok); color: var(--ok); background: transparent;
   border-radius: var(--radius); padding: 3px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; flex: none;

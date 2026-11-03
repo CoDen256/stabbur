@@ -23,10 +23,16 @@ def register_auth(app):
         # database-exploration UI, chicken-and-egg otherwise). /blob/<sha256>
         # also stays open: a note's audio is served to whatever renders the
         # authoring UI's <audio> preview, which does not carry the bearer
-        # header.
+        # header. /api/enrich/tts/preview/<sha256> is the same situation one
+        # step earlier — previewing a /tts candidate before it's ever been
+        # stored as a stabbur blob — for the same reason: an <audio src=...>
+        # can't attach an Authorization header, and the sha256 itself is the
+        # only thing identifying the content either way.
         if request.path == "/ui" or request.path.startswith("/ui/"):
             return None
         if request.path.startswith("/blob/"):
+            return None
+        if request.path.startswith("/api/enrich/tts/preview/"):
             return None
 
         token = os.environ.get(AUTH_TOKEN_ENV)

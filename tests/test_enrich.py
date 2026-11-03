@@ -146,6 +146,35 @@ def test_tts_use_surfaces_smia_fetch_failure(client, monkeypatch):
     assert resp.status_code == 502
 
 
+def test_tts_preview_streams_bytes_without_storing_a_blob(client, monkeypatch):
+    import blob_storage
+
+    audio_bytes = b"fake mp3 bytes for a preview"
+
+    def fake_get_bytes(path, timeout=30.0):
+        assert path == "/tts/preview123"
+        return 200, audio_bytes, "audio/mpeg"
+
+    monkeypatch.setattr(smia_client, "get_bytes", fake_get_bytes)
+    # No AUTH header — this route must be reachable from a plain <audio
+    # src=...>, which can't attach one (same exemption as /blob/<sha256>).
+    resp = client.get("/api/enrich/tts/preview/preview123")
+    assert resp.status_code == 200
+    assert resp.data == audio_bytes
+    assert resp.content_type == "audio/mpeg"
+
+    # Unlike tts/use, previewing never commits anything to stabbur's own
+    # content-addressed store.
+    import hashlib
+    assert not blob_storage.exists(hashlib.sha256(audio_bytes).hexdigest())
+
+
+def test_tts_preview_surfaces_smia_fetch_failure(client, monkeypatch):
+    monkeypatch.setattr(smia_client, "get_bytes", lambda path, timeout=30.0: (404, b"", "application/json"))
+    resp = client.get("/api/enrich/tts/preview/missing")
+    assert resp.status_code == 502
+
+
 def test_stt_forwards_blob_bytes_as_multipart(client, monkeypatch):
     import blob_storage
 

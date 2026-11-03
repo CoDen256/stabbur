@@ -175,11 +175,14 @@
                 <div class="suggest-panel" id="e_translations_suggest" data-kind="translations" data-prefix="e"></div>
               </div>
               <div class="field" id="e_inflections_field" style="display:none">
-                <div class="field-label-row"><label>Inflections</label>
-                  <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="e_inflections_suggest">Look up paradigm</button>
-                </div>
+                <div class="field-label-row"><label>Inflections</label></div>
                 <div id="e_inflections_fields" class="inflection-fields"></div>
-                <p class="inline-note">Different providers shape this differently — copy whichever form matches, this never auto-fills.</p>
+                <div class="suggest-control" style="margin-top:10px;">
+                  <button type="button" class="suggest-toggle" data-suggest-toggle="e_inflections_suggest">✨ Look up paradigm<span class="count" id="e_inflections_suggest_count" style="display:none"></span></button>
+                  <div class="suggest-control-divider"></div>
+                  <input type="text" class="suggest-query" id="e_inflections_suggest_query" spellcheck="false">
+                </div>
+                <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
                 <div class="suggest-panel" id="e_inflections_suggest" data-kind="inflections" data-prefix="e"></div>
               </div>
               <div class="field"><label for="e_context_text">Context text</label><textarea id="e_context_text"></textarea></div>
@@ -206,13 +209,7 @@
             <div class="field-label-row" style="margin-bottom:12px;">
               <h3 style="font-size:13px;">Audio</h3>
             </div>
-            <div class="suggest-control" style="margin-bottom:12px;">
-              <button type="button" class="suggest-toggle" data-suggest-toggle="e_tts_suggest">✨ Suggest<span class="count" id="e_tts_suggest_count" style="display:none"></span></button>
-              <div class="suggest-control-divider"></div>
-              <input type="text" class="suggest-query" id="e_tts_suggest_query" spellcheck="false">
-            </div>
             <div id="noteAudioNone" class="inline-note">No audio attached.</div>
-            <div class="suggest-panel" id="e_tts_suggest" data-kind="tts" data-prefix="e"></div>
             <div id="noteAudioPlayer" style="display:none">
               <div class="audio-player">
                 <button class="play-btn" id="audioPlayBtn" type="button">▶</button>
@@ -231,10 +228,18 @@
               </div>
               <div class="inline-note" id="audioClipNote"></div>
             </div>
-            <div class="field" style="margin-top:14px;">
-              <label for="e_audio_file">Replace audio</label>
-              <input id="e_audio_file" type="file" accept="audio/*">
-              <button id="uploadAudioBtn" type="button" style="margin-top:8px;">↻ Upload &amp; replace</button>
+            <div class="suggest-control" style="margin-top:14px;">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="e_tts_suggest">✨ Suggest<span class="count" id="e_tts_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="e_tts_suggest_query" spellcheck="false">
+            </div>
+            <div class="suggest-panel" id="e_tts_suggest" data-kind="tts" data-prefix="e"></div>
+            <div class="provider-row" style="margin-top:7px;">
+              <div class="provider-head"><span class="provider-name">Manual upload</span></div>
+              <div class="candidate-row" style="border-top:none; padding-top:0;">
+                <input id="e_audio_file" type="file" accept="audio/*" style="flex:1; min-width:0;">
+                <button id="uploadAudioBtn" class="use-btn" type="button">Use</button>
+              </div>
             </div>
           </div>
         </div>
@@ -356,11 +361,14 @@
             <div class="suggest-panel" id="c_translations_suggest" data-kind="translations" data-prefix="c"></div>
           </div>
           <div class="field" id="c_inflections_field" style="display:none">
-            <div class="field-label-row"><label>Inflections</label>
-              <button type="button" class="btn-ghost btn-suggest" data-suggest-toggle="c_inflections_suggest">Look up paradigm</button>
-            </div>
+            <div class="field-label-row"><label>Inflections</label></div>
             <div id="c_inflections_fields" class="inflection-fields"></div>
-            <p class="inline-note">Different providers shape this differently — copy whichever form matches, this never auto-fills.</p>
+            <div class="suggest-control" style="margin-top:10px;">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_inflections_suggest">✨ Look up paradigm<span class="count" id="c_inflections_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_inflections_suggest_query" spellcheck="false">
+            </div>
+            <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
             <div class="suggest-panel" id="c_inflections_suggest" data-kind="inflections" data-prefix="c"></div>
           </div>
           <div class="field"><label for="c_context_text">Context text</label><textarea id="c_context_text"></textarea></div>
@@ -375,7 +383,10 @@
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_tts_suggest_query" spellcheck="false">
             </div>
-            <div id="c_audio_suggest_chosen" class="inline-note" style="display:none"></div>
+            <div id="c_audio_suggest_chosen" style="display:none; margin-top:8px;">
+              <div class="inline-note" id="c_audio_suggest_chosen_note"></div>
+              <audio id="c_audio_suggest_chosen_player" controls style="width:100%; margin-top:6px;"></audio>
+            </div>
             <div class="suggest-panel" id="c_tts_suggest" data-kind="tts" data-prefix="c"></div>
             <div class="dropzone"><input id="c_audio_file" type="file" accept="audio/*"></div>
           </div>
