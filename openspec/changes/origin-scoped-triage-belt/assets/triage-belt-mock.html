@@ -1,0 +1,1300 @@
+<title>stabbur — triage belt, fill-all, settings (mockup)</title>
+<style>
+  :root {
+    --bg: #f5f3ef;
+    --bg-elevated: #ffffff;
+    --bg-sunken: #ebe7e0;
+    --border: #e2ddd3;
+    --border-soft: #ece8e0;
+    --text: #221f1a;
+    --text-dim: #6b6660;
+    --text-faint: #9a948a;
+    --accent: #b35a2d;
+    --accent-soft: #b35a2d14;
+    --accent-text: #8a431c;
+    --ok: #2f8a5c;
+    --ok-soft: #2f8a5c14;
+    --warn: #a87c1f;
+    --warn-soft: #a87c1f14;
+    --err: #b23a34;
+    --err-soft: #b23a3414;
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --bg-elevated: #1b1f26; --bg-sunken: #0f1216;
+      --border: #2a3039; --border-soft: #232832;
+      --text: #e8e6e1; --text-dim: #8b94a3; --text-faint: #566073;
+      --accent: #c6703f; --accent-soft: #c6703f26; --accent-text: #f2b688;
+      --ok: #5bab7e; --ok-soft: #5bab7e1f;
+      --warn: #d4a73d; --warn-soft: #d4a73d1f;
+      --err: #d1453f; --err-soft: #d1453f1f;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c; --bg-elevated: #1b1f26; --bg-sunken: #0f1216;
+    --border: #2a3039; --border-soft: #232832;
+    --text: #e8e6e1; --text-dim: #8b94a3; --text-faint: #566073;
+    --accent: #c6703f; --accent-soft: #c6703f26; --accent-text: #f2b688;
+    --ok: #5bab7e; --ok-soft: #5bab7e1f;
+    --warn: #d4a73d; --warn-soft: #d4a73d1f;
+    --err: #d1453f; --err-soft: #d1453f1f;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f3ef; --bg-elevated: #ffffff; --bg-sunken: #ebe7e0;
+    --border: #e2ddd3; --border-soft: #ece8e0;
+    --text: #221f1a; --text-dim: #6b6660; --text-faint: #9a948a;
+    --accent: #b35a2d; --accent-soft: #b35a2d14; --accent-text: #8a431c;
+    --ok: #2f8a5c; --ok-soft: #2f8a5c14;
+    --warn: #a87c1f; --warn-soft: #a87c1f14;
+    --err: #b23a34; --err-soft: #b23a3414;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  h1, h2, h3 { font-weight: 650; margin: 0; text-wrap: balance; }
+  .mono { font-family: var(--mono); }
+  .eyebrow {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-faint); font-weight: 600;
+  }
+
+  /* ── mockup chrome (not part of the proposed UI) ───────────────── */
+  .mockbar {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 12px 20px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 20;
+  }
+  .mockbar .brand { font-weight: 700; letter-spacing: -.01em; }
+  .mockbar .brand span { color: var(--text-faint); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .screens { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  .screens button {
+    font: inherit; font-size: 12.5px; padding: 5px 11px; cursor: pointer;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: transparent; color: var(--text-dim);
+  }
+  .screens button:hover { background: var(--accent-soft); }
+  .screens button[aria-selected="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  }
+  button:focus-visible, .belt-track:focus-visible, a:focus-visible,
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* the real app's left rail — shown so the belt reads as one more tab,
+     not a replacement for the editor */
+  .shell { display: flex; align-items: stretch; min-height: calc(100vh - 54px); }
+  .rail {
+    width: 178px; flex: none; border-right: 1px solid var(--border);
+    padding: 16px 10px; display: flex; flex-direction: column; gap: 2px;
+    background: var(--bg-elevated);
+  }
+  .rail-group-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-faint); padding: 12px 10px 6px; font-weight: 600;
+  }
+  .rail-group-label:first-child { padding-top: 2px; }
+  .rail a {
+    padding: 7px 10px; border-radius: var(--radius); font-size: 13px;
+    color: var(--text-dim); text-decoration: none; display: flex;
+    align-items: center; gap: 7px;
+  }
+  .rail a:hover { background: var(--accent-soft); color: var(--accent-text); }
+  .rail a.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+  .rail a .badge {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+    background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 6px;
+  }
+  .rail a.new { color: var(--text-dim); }
+  .main { flex: 1; min-width: 0; }
+
+  .note-banner {
+    max-width: 1020px; margin: 0 auto; padding: 16px 20px 0;
+    color: var(--text-dim); font-size: 12.5px;
+  }
+  .note-banner strong { color: var(--text); }
+
+  /* ── triage belt ───────────────────────────────────────────────── */
+  .stage { max-width: 1020px; margin: 0 auto; padding: 18px 20px 120px; }
+
+  .belt {
+    display: flex; align-items: center; gap: 16px;
+    padding: 13px 16px; margin-bottom: 20px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    flex-wrap: wrap;
+  }
+  .belt-counts { flex: none; }
+  .belt-counts .n {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 21px; font-weight: 650; line-height: 1; letter-spacing: -.02em;
+  }
+  .belt-counts .n small { color: var(--text-faint); font-size: 13px; font-weight: 400; }
+  .belt-track {
+    flex: 1; min-width: 140px; display: flex; align-items: flex-end; gap: 3px;
+    height: 30px; overflow-x: auto; padding-bottom: 2px;
+  }
+  .notch { flex: none; width: 7px; border-radius: 2px; background: var(--border); height: 11px; }
+  .notch.done { background: var(--ok); opacity: .4; }
+  .notch.here { background: var(--accent); height: 27px; width: 9px; }
+  .belt-right { flex: none; display: flex; align-items: center; gap: 8px; }
+
+  .card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-head {
+    padding: 15px 20px; border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap;
+  }
+  .headword {
+    font-family: var(--mono); font-size: 24px; font-weight: 650;
+    letter-spacing: -.015em; line-height: 1.15;
+  }
+  .card-head .meta { color: var(--text-dim); font-size: 12.5px; margin-top: 3px; }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; padding: 3px 9px;
+    border-radius: 99px; background: var(--bg-sunken); color: var(--text-dim);
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.flat::before { display: none; }
+  .pill-ok { background: var(--ok-soft); color: var(--ok); }
+  .pill-warn { background: var(--warn-soft); color: var(--warn); }
+  .pill-accent { background: var(--accent-soft); color: var(--accent-text); }
+
+  .card-body { display: grid; grid-template-columns: 1fr 320px; }
+  @media (max-width: 880px) { .card-body { grid-template-columns: 1fr; } }
+  .card-main { padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
+  .card-side {
+    padding: 18px 20px; background: var(--bg-sunken);
+    border-left: 1px solid var(--border-soft);
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  @media (max-width: 880px) { .card-side { border-left: none; border-top: 1px solid var(--border-soft); } }
+  .card-body.single { grid-template-columns: 1fr; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field-head { display: flex; align-items: center; gap: 8px; min-height: 20px; flex-wrap: wrap; }
+  .field-head label { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+  .field-head .spacer { margin-left: auto; }
+  input[type="text"], input[type="file"], textarea, select {
+    font: inherit; font-size: 13.5px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 7px 9px; width: 100%;
+  }
+  input.mono, textarea.mono { font-family: var(--mono); font-size: 13px; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  /* where a value came from — provenance, not judgement */
+  .src {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .src::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); opacity: .7; }
+  .src.mine::before { background: var(--accent); }
+  .src.empty::before { background: var(--border); }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
+  .row-trans { display: grid; grid-template-columns: 54px 1fr; gap: 8px; align-items: center; }
+
+  .para { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .para-row { display: grid; grid-template-columns: 92px 1fr; border-top: 1px solid var(--border-soft); }
+  .para-row:first-child { border-top: none; }
+  .para-row > div { padding: 6px 9px; }
+  .para-row .k { font-size: 11.5px; color: var(--text-dim); background: var(--bg-sunken); }
+  .para-row .v { font-family: var(--mono); font-size: 13px; }
+
+  .wave {
+    height: 40px; border-radius: var(--radius); background: var(--bg);
+    border: 1px solid var(--border); display: flex; align-items: center;
+    gap: 2px; padding: 0 8px; overflow: hidden; flex: 1; min-width: 0;
+  }
+  .wave i { flex: 1; background: var(--accent); opacity: .5; border-radius: 1px; }
+  .audio-row { display: flex; align-items: center; gap: 10px; }
+  .play {
+    flex: none; width: 31px; height: 31px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--bg-elevated);
+    color: var(--text); cursor: pointer; font-size: 11px;
+  }
+  .play:hover { border-color: var(--accent); color: var(--accent-text); }
+
+  /* ── verdict bar ───────────────────────────────────────────────── */
+  .verdict {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 15;
+    background: var(--bg-elevated); border-top: 1px solid var(--border);
+    padding: 11px 20px;
+  }
+  .verdict-inner {
+    max-width: 1020px; margin: 0 auto; padding-left: 178px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  @media (max-width: 760px) { .verdict-inner { padding-left: 0; } }
+  .verdict button {
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border-radius: var(--radius); padding: 9px 14px;
+    border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
+    display: inline-flex; align-items: center; gap: 9px;
+  }
+  .verdict button:hover { border-color: var(--text-dim); }
+  .verdict .v-accept { background: var(--ok); border-color: var(--ok); color: #fff; margin-left: auto; }
+  .verdict .v-accept:hover { filter: brightness(1.07); border-color: var(--ok); }
+  .verdict .v-del:hover { border-color: var(--err); color: var(--err); background: var(--err-soft); }
+  .verdict .v-later:hover { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+  kbd {
+    font-family: var(--mono); font-size: 10.5px; line-height: 1;
+    padding: 3px 5px; border-radius: 3px;
+    border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text-dim);
+  }
+  .v-accept kbd { background: rgba(255,255,255,.17); border-color: rgba(255,255,255,.3); color: #fff; }
+
+  /* ── suggest pill + panel ──────────────────────────────────────── */
+  .pill-group {
+    display: inline-flex; align-items: stretch;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-elevated); overflow: hidden; max-width: 100%;
+  }
+  .pill-group:focus-within { border-color: var(--accent); }
+  .pill-btn {
+    font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    border: none; background: transparent; color: var(--text-dim);
+    padding: 4px 9px; display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .pill-btn:hover { background: var(--accent-soft); color: var(--accent-text); }
+  .pill-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-text); }
+  .pill-btn .chev { font-size: 9px; color: var(--text-faint); }
+  .pill-btn .count {
+    font-family: var(--mono); font-size: 10px; background: var(--bg-sunken);
+    border-radius: 99px; padding: 1px 5px; color: var(--text-dim);
+  }
+  .pill-div { width: 1px; background: var(--border); margin: 5px 0; }
+  .pill-group input {
+    border: none; background: transparent; width: 140px;
+    font-family: var(--mono); font-size: 12px; padding: 4px 8px;
+  }
+  .pill-group input:focus { outline: none; }
+  .pill-reload {
+    font: inherit; font-size: 12px; cursor: pointer; border: none;
+    background: transparent; color: var(--text-dim); padding: 4px 9px;
+  }
+  .pill-reload:hover { background: var(--accent-soft); color: var(--accent-text); }
+  .from { font-size: 10.5px; color: var(--text-faint); }
+  .from b { font-family: var(--mono); color: var(--text-dim); font-weight: 600; }
+
+  .panel {
+    margin-top: 8px; background: var(--bg-sunken);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 9px 11px; display: flex; flex-direction: column; gap: 7px;
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 11px; color: var(--text-dim); padding-bottom: 1px;
+  }
+  .prow {
+    background: var(--bg-elevated); border: 1px solid var(--border-soft);
+    border-radius: var(--radius); padding: 7px 10px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .prow-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .pname { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+  .cand { font-family: var(--mono); font-size: 13px; }
+  .cand.none { color: var(--text-faint); font-family: system-ui, sans-serif; font-size: 12px; }
+  .cmeta { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+
+  /* per-provider controls: ✎ override, ⟳ retry, then Use */
+  .pacts { margin-left: auto; display: flex; align-items: center; gap: 5px; flex: none; }
+  .icon {
+    font: inherit; font-size: 11.5px; cursor: pointer; line-height: 1;
+    border: 1px solid var(--border); background: var(--bg-elevated);
+    color: var(--text-dim); border-radius: var(--radius);
+    width: 24px; height: 23px; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .icon:hover { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+  .icon[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+  .use {
+    font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--ok); color: var(--ok); background: transparent;
+    border-radius: var(--radius); padding: 4px 9px;
+  }
+  .use:hover { background: var(--ok); color: #fff; }
+  .use.used { background: var(--ok); color: #fff; }
+  .use.link {
+    border-color: var(--border); color: var(--text-dim);
+    text-decoration: none; display: inline-flex; align-items: center;
+  }
+  .use.link:hover { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+  .primary-tag {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    background: var(--accent-soft); color: var(--accent-text);
+    border-radius: 3px; padding: 2px 5px; flex: none;
+  }
+
+  /* revealed per-provider override / paste-back */
+  .pover { display: none; gap: 7px; align-items: center; flex-wrap: wrap; }
+  .pover.on { display: flex; }
+  .pover input { flex: 1; min-width: 150px; font-family: var(--mono); font-size: 12px; padding: 5px 8px; }
+  .pover .lbl { font-size: 10.5px; color: var(--text-faint); flex: none; }
+
+  .prow.upload { border-style: dashed; }
+
+  /* ── editor extras ─────────────────────────────────────────────── */
+  .ed { max-width: 1020px; margin: 0 auto; padding: 18px 20px 60px; }
+  .fillall {
+    font: inherit; font-size: 13px; font-weight: 650; cursor: pointer;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+    border-radius: var(--radius); padding: 9px 15px;
+    display: inline-flex; align-items: center; gap: 9px; flex: none;
+  }
+  .fillall:hover { filter: brightness(1.07); }
+  .fill-strip {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 13px 16px; margin-bottom: 18px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .fill-strip .hint { font-size: 12px; color: var(--text-dim); max-width: 46ch; }
+
+  .linkbox {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: var(--bg-elevated); border: 1px dashed var(--border);
+    border-radius: var(--radius); padding: 10px 11px;
+  }
+  .linkbox input { flex: 1; min-width: 170px; }
+  .sniff { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+  /* ── settings ──────────────────────────────────────────────────── */
+  .set { max-width: 820px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-direction: column; gap: 18px; }
+  .sgroup {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .sgroup > h3 {
+    font-size: 13px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken);
+  }
+  .sgroup > h3 span { font-weight: 400; color: var(--text-dim); font-size: 12px; margin-left: 8px; }
+  .sitem {
+    padding: 14px 16px; border-top: 1px solid var(--border-soft);
+    display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .sitem:first-of-type { border-top: none; }
+  .sitem .txt { flex: 1; min-width: 230px; }
+  .sitem .txt b { font-size: 13px; font-weight: 650; display: block; }
+  .sitem .txt p { margin: 3px 0 0; font-size: 12px; color: var(--text-dim); max-width: 58ch; }
+  .sitem .ctl { flex: none; }
+  .sitem.sub { padding-top: 0; border-top: none; }
+
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .seg button {
+    font: inherit; font-size: 12px; cursor: pointer; border: none;
+    background: transparent; color: var(--text-dim); padding: 6px 11px; white-space: nowrap;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+
+  .switch {
+    width: 40px; height: 22px; border-radius: 99px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg-sunken);
+    position: relative; padding: 0;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-faint); transition: left .14s, background .14s;
+  }
+  .switch[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  .switch[aria-pressed="true"]::after { left: 20px; background: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { .switch::after { transition: none; } }
+
+  .plist { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .pitem {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 7px 10px;
+  }
+  .pitem .grip { color: var(--text-faint); cursor: grab; font-size: 13px; flex: none; }
+  .pitem .ord {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 11px; color: var(--text-faint); width: 14px; flex: none;
+  }
+  .pitem .nm { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .pitem .tail { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pitem.off { opacity: .5; }
+  .pitem.off .nm { text-decoration: line-through; }
+
+  .dbnote {
+    font-size: 11.5px; color: var(--text-dim); padding: 10px 16px;
+    border-top: 1px solid var(--border-soft); background: var(--bg-sunken);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+</style>
+
+<div class="mockbar">
+  <div class="brand">stabbur <span>mockup · not the live UI</span></div>
+  <div class="screens" role="tablist">
+    <button role="tab" aria-selected="true" data-s="triage">Triage belt</button>
+    <button role="tab" aria-selected="false" data-s="editor">Editor · fill all</button>
+    <button role="tab" aria-selected="false" data-s="settings">Settings</button>
+  </div>
+</div>
+
+<!-- ═══════════ 1. TRIAGE BELT ═══════════ -->
+<section class="screen active" id="s-triage">
+  <div class="shell">
+    <nav class="rail">
+      <div class="rail-group-label">Content</div>
+      <a href="#">Notes</a>
+      <a href="#">Grammar rules</a>
+      <div class="rail-group-label">Review</div>
+      <a href="#" class="on">Triage <span class="badge">47</span></a>
+      <div class="rail-group-label">Create</div>
+      <a href="#" class="new">+ New note</a>
+      <a href="#" class="new">+ New grammar rule</a>
+      <div class="rail-group-label">Config</div>
+      <a href="#">Settings</a>
+    </nav>
+
+    <div class="main">
+      <div class="note-banner">
+        A <strong>new tab beside Notes</strong> — the existing editor is untouched and still the way
+        to open any single note. Primary providers have already prefilled the empty fields;
+        every suggest panel is <strong>shut</strong> until you want it.
+      </div>
+      <div class="stage">
+
+        <div class="belt">
+          <div class="belt-counts">
+            <div class="eyebrow">Drafts left</div>
+            <div class="n">47 <small>/ 63</small></div>
+          </div>
+          <div class="belt-track" tabindex="0" aria-label="Queue position: note 16 of 63">
+            <i class="notch done"></i><i class="notch done"></i><i class="notch done"></i>
+            <i class="notch done"></i><i class="notch done"></i><i class="notch done"></i>
+            <i class="notch done"></i><i class="notch done"></i><i class="notch done"></i>
+            <i class="notch done"></i><i class="notch done"></i><i class="notch done"></i>
+            <i class="notch done"></i><i class="notch done"></i><i class="notch done"></i>
+            <i class="notch here"></i>
+            <i class="notch"></i><i class="notch"></i><i class="notch"></i><i class="notch"></i>
+            <i class="notch"></i><i class="notch"></i><i class="notch"></i><i class="notch"></i>
+            <i class="notch"></i><i class="notch"></i><i class="notch"></i><i class="notch"></i>
+            <i class="notch"></i><i class="notch"></i><i class="notch"></i><i class="notch"></i>
+            <i class="notch"></i><i class="notch"></i><i class="notch"></i><i class="notch"></i>
+          </div>
+          <div class="belt-right">
+            <span class="pill flat">2 sent back</span>
+            <span class="pill pill-accent">prefilled 6 fields</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="headword">legge til</div>
+              <div class="meta mono">word · verb · no · seq 1184 · captured 3 Nov</div>
+            </div>
+            <div class="head-right">
+              <button class="icon" title="Re-run every primary provider for this note" style="width:auto;padding:0 9px;gap:6px">⟳ Prefill again</button>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="card-main">
+
+              <div class="field">
+                <div class="field-head">
+                  <label for="t-text">Text</label>
+                  <span class="spacer"></span>
+                  <span class="src empty">as captured</span>
+                </div>
+                <input id="t-text" class="mono" type="text" value="legge til">
+                <div class="from">feeds <b>translations</b> · <b>transcription</b> · <b>audio</b></div>
+              </div>
+
+              <div class="row2">
+                <div class="field">
+                  <div class="field-head">
+                    <label for="t-lemma">Lemma</label>
+                    <span class="spacer"></span>
+                    <span class="src mine">first word of text</span>
+                  </div>
+                  <input id="t-lemma" class="mono" type="text" value="legge">
+                  <div class="from">feeds <b>inflections</b> only</div>
+                </div>
+                <div class="field">
+                  <div class="field-head">
+                    <label for="t-pos">Part of speech</label>
+                  </div>
+                  <select id="t-pos">
+                    <option selected>verb</option>
+                    <option>substantiv</option>
+                    <option>adjektiv</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-head">
+                  <label for="t-ipa">Transcription</label>
+                  <span class="spacer"></span>
+                  <span class="src">wikipron</span>
+                </div>
+                <input id="t-ipa" class="mono" type="text" value="²lɛɡə tɪl">
+                <div class="field-head">
+                  <div class="pill-group">
+                    <button class="pill-btn" aria-expanded="false" data-panel="t-p-ipa">✨ Suggest pronunciations<span class="count">3</span><span class="chev">▾</span></button>
+                    <span class="pill-div"></span>
+                    <input type="text" value="legge til" aria-label="Transcription query">
+                    <span class="pill-div"></span>
+                    <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+                  </div>
+                </div>
+                <div class="panel" id="t-p-ipa">
+                  <div class="panel-head">3 providers · query <span class="mono">legge til</span></div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">wikipron</span><span class="primary-tag">primary</span>
+                      <span class="cand">²lɛɡə tɪl</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-ipa1" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use used">✓ Used</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-ipa1">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">ipadict</span>
+                      <span class="cand">ˈlɛɡːə tɪl</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-ipa2" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use">Use</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-ipa2">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">nst</span>
+                      <span class="cand none">no entry for “legge til”</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="true" data-over="t-o-ipa3" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                      </span>
+                    </div>
+                    <div class="pover on" id="t-o-ipa3">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" value="legge">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-head">
+                  <label>Translations</label>
+                  <span class="spacer"></span>
+                  <span class="src">dictcc + kaikki, merged</span>
+                </div>
+                <div class="row-trans">
+                  <input class="mono" type="text" value="en" aria-label="Language">
+                  <input class="mono" type="text" value="to add / to append" aria-label="English translation">
+                </div>
+                <div class="row-trans" style="margin-top:6px">
+                  <input class="mono" type="text" value="de" aria-label="Language">
+                  <input class="mono" type="text" value="hinzufügen" aria-label="German translation">
+                </div>
+                <div class="field-head" style="margin-top:4px">
+                  <div class="pill-group">
+                    <button class="pill-btn" aria-expanded="false" data-panel="t-p-tr">✨ Suggest translations<span class="count">4</span><span class="chev">▾</span></button>
+                    <span class="pill-div"></span>
+                    <input type="text" value="legge til" aria-label="Translation query">
+                    <span class="pill-div"></span>
+                    <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+                  </div>
+                </div>
+                <div class="panel" id="t-p-tr">
+                  <div class="panel-head"><strong>English</strong><span style="margin-left:auto">appending over “/”</span></div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">dictcc</span><span class="primary-tag">primary</span>
+                      <span class="cand">to add</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tr1" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use used">✓ Used</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-tr1">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">kaikki</span>
+                      <span class="cand">to append</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tr2" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use used">✓ Used</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-tr2">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">deepl</span>
+                      <span class="cand">to add on</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tr3" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use">Append</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-tr3">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                  <div class="panel-head"><strong>German</strong><span style="margin-left:auto">+ add language</span></div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">dictcc</span><span class="primary-tag">primary</span>
+                      <span class="cand">hinzufügen</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tr4" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use used">✓ Used</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-tr4">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-head">
+                  <label>Inflections</label>
+                  <span class="spacer"></span>
+                  <span class="src">ordbokene · legge</span>
+                </div>
+                <div class="para">
+                  <div class="para-row"><div class="k">infinitiv</div><div class="v">legge</div></div>
+                  <div class="para-row"><div class="k">presens</div><div class="v">legger</div></div>
+                  <div class="para-row"><div class="k">preteritum</div><div class="v">la</div></div>
+                  <div class="para-row"><div class="k">perfektum</div><div class="v">lagt</div></div>
+                </div>
+                <div class="field-head" style="margin-top:4px">
+                  <div class="pill-group">
+                    <button class="pill-btn" aria-expanded="false" data-panel="t-p-inf">✨ Look up paradigm<span class="count">3</span><span class="chev">▾</span></button>
+                    <span class="pill-div"></span>
+                    <input type="text" value="legge" aria-label="Inflections query">
+                    <span class="pill-div"></span>
+                    <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+                  </div>
+                  <span class="from">from <b>lemma</b></span>
+                </div>
+                <div class="panel" id="t-p-inf">
+                  <div class="panel-head">3 providers · query <span class="mono">legge</span> · copy or fill per field</div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">ordbokene</span><span class="primary-tag">primary</span>
+                      <span class="cmeta">legge · verb</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-inf1" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                        <button class="use used">✓ Filled 4</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-inf1">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge">
+                      <button class="use">Retry</button>
+                    </div>
+                    <div class="para">
+                      <div class="para-row"><div class="k">infinitiv</div><div class="v">legge <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">presens</div><div class="v">legger <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">preteritum</div><div class="v">la <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">perfektum</div><div class="v">lagt <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                    </div>
+                  </div>
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">ordbank</span>
+                      <span class="cmeta">legge · verb</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-inf2" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                      </span>
+                    </div>
+                    <div class="pover" id="t-o-inf2">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge">
+                      <button class="use">Retry</button>
+                    </div>
+                    <div class="para">
+                      <div class="para-row"><div class="k">infinitiv</div><div class="v">legge <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">presens</div><div class="v">legger <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">preteritum</div><div class="v">lagde <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                      <div class="para-row"><div class="k">perfektum</div><div class="v">lagt <button class="icon" style="width:auto;padding:0 6px;font-size:10px">Fill</button></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-head"><label for="t-ctx">Context text</label></div>
+                <textarea id="t-ctx" rows="2" class="mono">Kan du legge til litt salt?</textarea>
+              </div>
+
+            </div>
+
+            <!-- ── audio sidebar: full provider list restored ── -->
+            <div class="card-side">
+              <div class="field">
+                <div class="field-head">
+                  <label>Audio</label>
+                  <span class="spacer"></span>
+                  <span class="src">forvo paste-back</span>
+                </div>
+                <div class="audio-row">
+                  <button class="play" aria-label="Play audio">▶</button>
+                  <div class="wave" aria-hidden="true">
+                    <i style="height:22%"></i><i style="height:48%"></i><i style="height:76%"></i>
+                    <i style="height:94%"></i><i style="height:62%"></i><i style="height:34%"></i>
+                    <i style="height:18%"></i><i style="height:44%"></i><i style="height:82%"></i>
+                    <i style="height:68%"></i><i style="height:40%"></i><i style="height:24%"></i>
+                    <i style="height:14%"></i><i style="height:30%"></i><i style="height:52%"></i>
+                    <i style="height:36%"></i><i style="height:20%"></i><i style="height:12%"></i>
+                  </div>
+                </div>
+                <div class="mono" style="font-size:11px;color:var(--text-faint)">trim 0.00 – 1.24 s</div>
+
+                <div class="field-head" style="margin-top:6px">
+                  <div class="pill-group">
+                    <button class="pill-btn" aria-expanded="true" data-panel="t-p-tts">✨ Suggest<span class="count">5</span><span class="chev">▾</span></button>
+                    <span class="pill-div"></span>
+                    <input type="text" value="legge til" aria-label="Audio query" style="width:96px">
+                    <span class="pill-div"></span>
+                    <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+                  </div>
+                </div>
+
+                <div class="panel" id="t-p-tts">
+                  <div class="panel-head">5 providers · query <span class="mono">legge til</span></div>
+
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">kaikki_tts</span><span class="primary-tag">primary</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tts1" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                      </span>
+                    </div>
+                    <div class="prow-top">
+                      <button class="play" style="width:25px;height:25px;font-size:9px" aria-label="Preview kaikki_tts">▶</button>
+                      <span class="cmeta">0:01 · ogg</span>
+                      <span class="pacts"><button class="use">Use</button></span>
+                    </div>
+                    <div class="pover" id="t-o-tts1">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">elevenlabs</span>
+                      <span class="pacts">
+                        <button class="icon" aria-pressed="false" data-over="t-o-tts2" title="Use a different query for this provider">✎</button>
+                        <button class="icon" title="Retry this provider">⟳</button>
+                      </span>
+                    </div>
+                    <div class="prow-top">
+                      <button class="play" style="width:25px;height:25px;font-size:9px" aria-label="Preview elevenlabs">▶</button>
+                      <span class="cmeta">0:01 · mp3 · synth</span>
+                      <span class="pacts"><button class="use">Use</button></span>
+                    </div>
+                    <div class="pover" id="t-o-tts2">
+                      <span class="lbl">this provider only</span>
+                      <input class="mono" type="text" placeholder="legge til">
+                      <button class="use">Retry</button>
+                    </div>
+                  </div>
+
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">forvo</span>
+                      <span class="pill flat" style="font-size:9.5px">manual link</span>
+                      <span class="pacts">
+                        <a class="use link" href="#" style="padding:4px 8px">Open ↗</a>
+                      </span>
+                    </div>
+                    <div class="pover on">
+                      <input class="mono" type="text" value="https://forvo.com/download/mp3/legge_til/no/" aria-label="Paste Forvo audio URL">
+                      <button class="use used">✓ Used</button>
+                    </div>
+                  </div>
+
+                  <div class="prow">
+                    <div class="prow-top">
+                      <span class="pname">filmot</span>
+                      <span class="pill pill-warn" style="font-size:9.5px">known blocked</span>
+                      <span class="pacts">
+                        <a class="use link" href="#" style="padding:4px 8px">Open ↗</a>
+                      </span>
+                    </div>
+                    <div class="pover on">
+                      <input class="mono" type="text" placeholder="youtube URL with ?t=…" aria-label="Paste YouTube URL">
+                      <button class="use">Capture</button>
+                    </div>
+                  </div>
+
+                  <div class="prow upload">
+                    <div class="prow-top">
+                      <span class="pname">upload</span>
+                      <span class="cmeta">your own file</span>
+                    </div>
+                    <div class="prow-top">
+                      <input type="file" style="flex:1;min-width:0;font-size:12px" aria-label="Audio file">
+                      <span class="pacts"><button class="use">Use</button></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="field" style="margin-top:4px">
+                  <div class="field-head"><label for="t-url">Paste any audio link</label></div>
+                  <div class="linkbox">
+                    <input id="t-url" class="mono" type="text" placeholder="mp3 / wav / youtube?t=…">
+                    <button class="use" style="margin-left:0">Capture</button>
+                  </div>
+                  <div class="sniff" style="margin-top:6px">
+                    Recognised:
+                    <span class="pill flat">.mp3 .wav .ogg</span>
+                    <span class="pill flat">youtube + <span class="mono">?t=</span></span>
+                  </div>
+                  <div class="from" style="margin-top:5px">
+                    Not tied to a provider row — the link itself says what to do.
+                  </div>
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-head"><label for="t-gr">Grammar rule</label></div>
+                <select id="t-gr"><option>— none —</option></select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="verdict">
+        <div class="verdict-inner">
+          <button class="v-del">Delete <kbd>⌫</kbd></button>
+          <button class="v-later">Send to back <kbd>L</kbd></button>
+          <button class="v-skip">Skip <kbd>→</kbd></button>
+          <span style="font-size:11.5px;color:var(--text-faint);margin-left:6px">edits are kept on send‑to‑back</span>
+          <button class="v-accept">Mark ready &amp; next <kbd>⏎</kbd></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 2. EDITOR ═══════════ -->
+<section class="screen" id="s-editor">
+  <div class="note-banner">
+    The <strong>existing</strong> editor, structurally unchanged. Two additions only:
+    <strong>Fill all</strong> at the top, and <strong>⟳</strong> on each suggest pill so an edited
+    query re-fires every provider without collapsing the panel.
+  </div>
+  <div class="ed">
+
+    <div class="fill-strip">
+      <button class="fillall">⚡ Fill all from primary providers</button>
+      <div class="hint">
+        Fills only the fields that are still empty, walking down your provider order when
+        one has no entry. Never touches a field you have already filled or edited.
+      </div>
+      <div style="margin-left:auto" class="eyebrow">Last run · 6 filled, 1 left alone</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="headword">legge til</div>
+          <div class="meta mono">word · verb · no · draft</div>
+        </div>
+      </div>
+      <div class="card-body single">
+        <div class="card-main">
+
+          <div class="field">
+            <div class="field-head">
+              <label for="e-ipa">Transcription</label>
+              <span class="spacer"></span>
+              <span class="src">wikipron</span>
+            </div>
+            <input id="e-ipa" class="mono" type="text" value="²lɛɡə tɪl">
+            <div class="field-head">
+              <div class="pill-group">
+                <button class="pill-btn" aria-expanded="true" data-panel="e-p-ipa">✨ Suggest pronunciations<span class="count">3</span><span class="chev">▾</span></button>
+                <span class="pill-div"></span>
+                <input type="text" value="legge til" aria-label="Transcription query">
+                <span class="pill-div"></span>
+                <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+              </div>
+              <span class="from">from <b>text</b></span>
+            </div>
+            <div class="panel" id="e-p-ipa">
+              <div class="panel-head">
+                3 providers · query <span class="mono">legge til</span>
+                <span style="margin-left:auto">✎ per-provider query · ⟳ retry</span>
+              </div>
+              <div class="prow">
+                <div class="prow-top">
+                  <span class="pname">wikipron</span><span class="primary-tag">primary</span>
+                  <span class="cand">²lɛɡə tɪl</span>
+                  <span class="pacts">
+                    <button class="icon" aria-pressed="false" data-over="e-o1" title="Use a different query for this provider">✎</button>
+                    <button class="icon" title="Retry this provider">⟳</button>
+                    <button class="use used">✓ Used</button>
+                  </span>
+                </div>
+                <div class="pover" id="e-o1">
+                  <span class="lbl">this provider only</span>
+                  <input class="mono" type="text" value="legge til">
+                  <button class="use">Retry</button>
+                </div>
+              </div>
+              <div class="prow">
+                <div class="prow-top">
+                  <span class="pname">ipadict</span>
+                  <span class="cand">ˈlɛɡːə tɪl</span>
+                  <span class="pacts">
+                    <button class="icon" aria-pressed="true" data-over="e-o2" title="Use a different query for this provider">✎</button>
+                    <button class="icon" title="Retry this provider">⟳</button>
+                    <button class="use">Use</button>
+                  </span>
+                </div>
+                <div class="pover on" id="e-o2">
+                  <span class="lbl">this provider only</span>
+                  <input class="mono" type="text" value="legge til">
+                  <button class="use">Retry</button>
+                </div>
+              </div>
+              <div class="prow">
+                <div class="prow-top">
+                  <span class="pname">nst</span>
+                  <span class="cand none">no entry for “legge til”</span>
+                  <span class="pacts">
+                    <button class="icon" aria-pressed="false" data-over="e-o3" title="Use a different query for this provider">✎</button>
+                    <button class="icon" title="Retry this provider">⟳</button>
+                  </span>
+                </div>
+                <div class="pover" id="e-o3">
+                  <span class="lbl">this provider only</span>
+                  <input class="mono" type="text" value="legge til">
+                  <button class="use">Retry</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-head">
+              <label>Audio</label>
+              <span class="spacer"></span>
+              <span class="src empty">nothing attached</span>
+            </div>
+            <div class="linkbox">
+              <input class="mono" type="text" placeholder="paste any audio link — mp3 / wav / youtube?t=…" aria-label="Paste audio link">
+              <button class="use" style="margin-left:0">Capture</button>
+            </div>
+            <div class="sniff" style="margin-top:7px">
+              Recognised on paste:
+              <span class="pill flat">direct file → fetch &amp; store</span>
+              <span class="pill flat">youtube + <span class="mono">?t=</span> → clip</span>
+              <span class="pill pill-warn">youtube path known blocked</span>
+            </div>
+            <div class="field-head" style="margin-top:9px">
+              <div class="pill-group">
+                <button class="pill-btn" aria-expanded="false" data-panel="e-p-tts">✨ Suggest<span class="count">5</span><span class="chev">▾</span></button>
+                <span class="pill-div"></span>
+                <input type="text" value="legge til" aria-label="Audio query">
+                <span class="pill-div"></span>
+                <button class="pill-reload" title="Re-run every provider with this query">⟳</button>
+              </div>
+              <span class="from">from <b>text</b></span>
+            </div>
+            <div class="panel" id="e-p-tts">
+              <div class="panel-head">5 providers · includes upload and manual-link rows</div>
+              <div class="prow">
+                <div class="prow-top">
+                  <span class="pname">kaikki_tts</span><span class="primary-tag">primary</span>
+                  <button class="play" style="width:25px;height:25px;font-size:9px" aria-label="Preview">▶</button>
+                  <span class="cmeta">0:01 · ogg</span>
+                  <span class="pacts">
+                    <button class="icon" aria-pressed="false" data-over="e-ot1" title="Use a different query for this provider">✎</button>
+                    <button class="icon" title="Retry this provider">⟳</button>
+                    <button class="use">Use</button>
+                  </span>
+                </div>
+                <div class="pover" id="e-ot1">
+                  <span class="lbl">this provider only</span>
+                  <input class="mono" type="text" placeholder="legge til">
+                  <button class="use">Retry</button>
+                </div>
+              </div>
+              <div class="prow">
+                <div class="prow-top">
+                  <span class="pname">forvo</span>
+                  <span class="pill flat" style="font-size:9.5px">manual link</span>
+                  <span class="pacts"><a class="use link" href="#" style="padding:4px 8px">Open ↗</a></span>
+                </div>
+                <div class="pover on">
+                  <input class="mono" type="text" placeholder="paste the mp3 link you found" aria-label="Paste Forvo audio URL">
+                  <button class="use">Capture</button>
+                </div>
+              </div>
+              <div class="prow upload">
+                <div class="prow-top">
+                  <span class="pname">upload</span><span class="cmeta">your own file</span>
+                </div>
+                <div class="prow-top">
+                  <input type="file" style="flex:1;min-width:0;font-size:12px" aria-label="Audio file">
+                  <span class="pacts"><button class="use">Use</button></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 3. SETTINGS ═══════════ -->
+<section class="screen" id="s-settings">
+  <div class="note-banner">
+    New page, stored in <strong>stabbur's own database</strong> — one row, served over the API,
+    so the choices follow the operator rather than the browser.
+  </div>
+  <div class="set">
+
+    <div class="sgroup">
+      <h3>Prefilling</h3>
+      <div class="sitem">
+        <div class="txt">
+          <b>When primary providers run</b>
+          <p>On open, every empty field is filled the moment you land on a note. On button, nothing is looked up until you press <span class="mono">⚡ Fill all</span>.</p>
+        </div>
+        <div class="ctl seg">
+          <button aria-pressed="true">On open</button>
+          <button aria-pressed="false">On button</button>
+        </div>
+      </div>
+      <div class="sitem">
+        <div class="txt">
+          <b>Only fill empty fields</b>
+          <p>A field you have typed into, or that arrived with the capture, is never overwritten by a prefill run.</p>
+        </div>
+        <div class="ctl"><button class="switch" aria-pressed="true" aria-label="Only fill empty fields"></button></div>
+      </div>
+      <div class="sitem">
+        <div class="txt">
+          <b>Suggest panels start closed</b>
+          <p>Prefilled values are shown in the fields themselves; the provider rows stay out of the way until you open them.</p>
+        </div>
+        <div class="ctl"><button class="switch" aria-pressed="true" aria-label="Panels start closed"></button></div>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3>Provider order <span>drag to reorder · the first one that answers wins</span></h3>
+      <div class="sitem">
+        <div class="txt"><b>Transcription</b><p>Queried with <span class="mono">text</span>.</p></div>
+      </div>
+      <div class="sitem sub">
+        <div class="plist">
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">1</span><span class="nm">wikipron</span><span class="tail"><span class="primary-tag">primary</span><button class="switch" aria-pressed="true" aria-label="Enable wikipron"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">2</span><span class="nm">ipadict</span><span class="tail"><button class="switch" aria-pressed="true" aria-label="Enable ipadict"></button></span></div>
+          <div class="pitem off"><span class="grip">⠿</span><span class="ord">3</span><span class="nm">nst</span><span class="tail"><button class="switch" aria-pressed="false" aria-label="Enable nst"></button></span></div>
+        </div>
+      </div>
+      <div class="sitem">
+        <div class="txt"><b>Inflections</b><p>Queried with <span class="mono">lemma</span> — the only kind that is.</p></div>
+      </div>
+      <div class="sitem sub">
+        <div class="plist">
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">1</span><span class="nm">ordbokene</span><span class="tail"><span class="primary-tag">primary</span><button class="switch" aria-pressed="true" aria-label="Enable ordbokene"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">2</span><span class="nm">ordbank</span><span class="tail"><button class="switch" aria-pressed="true" aria-label="Enable ordbank"></button></span></div>
+        </div>
+      </div>
+      <div class="sitem">
+        <div class="txt"><b>Translations</b><p>Queried with <span class="mono">text</span>.</p></div>
+      </div>
+      <div class="sitem sub">
+        <div class="plist">
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">1</span><span class="nm">dictcc</span><span class="tail"><span class="primary-tag">primary</span><button class="switch" aria-pressed="true" aria-label="Enable dictcc"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">2</span><span class="nm">kaikki</span><span class="tail"><button class="switch" aria-pressed="true" aria-label="Enable kaikki"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">3</span><span class="nm">deepl</span><span class="tail"><button class="switch" aria-pressed="true" aria-label="Enable deepl"></button></span></div>
+          <div class="pitem off"><span class="grip">⠿</span><span class="ord">4</span><span class="nm">bing_translate</span><span class="tail"><button class="switch" aria-pressed="false" aria-label="Enable bing_translate"></button></span></div>
+        </div>
+      </div>
+      <div class="sitem">
+        <div class="txt"><b>Audio</b><p>Queried with <span class="mono">text</span>. Manual-link providers cannot answer automatically, so a prefill run skips past them.</p></div>
+      </div>
+      <div class="sitem sub">
+        <div class="plist">
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">1</span><span class="nm">kaikki_tts</span><span class="tail"><span class="primary-tag">primary</span><button class="switch" aria-pressed="true" aria-label="Enable kaikki_tts"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">2</span><span class="nm">elevenlabs</span><span class="tail"><button class="switch" aria-pressed="true" aria-label="Enable elevenlabs"></button></span></div>
+          <div class="pitem"><span class="grip">⠿</span><span class="ord">3</span><span class="nm">forvo</span><span class="tail"><span class="pill flat">manual link</span><button class="switch" aria-pressed="true" aria-label="Enable forvo"></button></span></div>
+          <div class="pitem off"><span class="grip">⠿</span><span class="ord">4</span><span class="nm">filmot</span><span class="tail"><span class="pill pill-warn">blocked</span><button class="switch" aria-pressed="false" aria-label="Enable filmot"></button></span></div>
+        </div>
+      </div>
+      <div class="dbnote">
+        Providers come from smia's <span class="mono">GET /providers</span>; this page stores only your order and which are on.
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3>Translations</h3>
+      <div class="sitem">
+        <div class="txt">
+          <b>Using a second suggestion for the same language</b>
+          <p>Appending gives one row reading <span class="mono">to add / to append</span>. Separate rows keeps today's behaviour.</p>
+        </div>
+        <div class="ctl seg">
+          <button aria-pressed="true">Append over “/”</button>
+          <button aria-pressed="false">Separate rows</button>
+        </div>
+      </div>
+      <div class="sitem">
+        <div class="txt"><b>Default target languages</b><p>Groups shown in every translation panel.</p></div>
+        <div class="ctl"><input class="mono" type="text" value="en, de" style="width:150px" aria-label="Default target languages"></div>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3>Lookups</h3>
+      <div class="sitem">
+        <div class="txt">
+          <b>Per-provider query starts prefilled</b>
+          <p>Reverses an earlier decision that opened the override empty so it read as a different input. Prefilled is faster to tweak.</p>
+        </div>
+        <div class="ctl"><button class="switch" aria-pressed="true" aria-label="Prefill per-provider query"></button></div>
+      </div>
+      <div class="sitem">
+        <div class="txt">
+          <b>Multi-word transcription</b>
+          <p>smia's <span class="mono">/ipa</span> takes a single word. For <span class="mono">legge til</span>, either smia learns phrases, or stabbur asks per word and joins the results.</p>
+        </div>
+        <div class="ctl seg">
+          <button aria-pressed="true">Ask per word, join</button>
+          <button aria-pressed="false">Send whole phrase</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3>Editor</h3>
+      <div class="sitem">
+        <div class="txt"><b>Clear the new-note form after saving</b><p>No field, query, or attached audio survives into the next note.</p></div>
+        <div class="ctl"><button class="switch" aria-pressed="true" aria-label="Clear form after saving"></button></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.screens button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.screens button').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+      b.setAttribute('aria-selected', 'true');
+      document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
+      document.getElementById('s-' + b.dataset.s).classList.add('active');
+      window.scrollTo(0, 0);
+    });
+  });
+  // suggest panels
+  document.querySelectorAll('[data-panel]').forEach(function (b) {
+    var p = document.getElementById(b.dataset.panel);
+    if (p && b.getAttribute('aria-expanded') === 'false') p.style.display = 'none';
+    b.addEventListener('click', function () {
+      var open = b.getAttribute('aria-expanded') === 'true';
+      b.setAttribute('aria-expanded', open ? 'false' : 'true');
+      if (p) p.style.display = open ? 'none' : 'flex';
+    });
+  });
+  // per-provider ✎ override reveal
+  document.querySelectorAll('[data-over]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var on = b.getAttribute('aria-pressed') === 'true';
+      b.setAttribute('aria-pressed', on ? 'false' : 'true');
+      var o = document.getElementById(b.dataset.over);
+      if (o) o.classList.toggle('on', !on);
+    });
+  });
+  // toggles and segmented controls
+  document.querySelectorAll('.switch, .seg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.closest('.seg')) {
+        b.closest('.seg').querySelectorAll('button').forEach(function (o) { o.setAttribute('aria-pressed', 'false'); });
+        b.setAttribute('aria-pressed', 'true');
+      } else {
+        b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+        var item = b.closest('.pitem');
+        if (item) item.classList.toggle('off', b.getAttribute('aria-pressed') !== 'true');
+      }
+    });
+  });
+</script>
