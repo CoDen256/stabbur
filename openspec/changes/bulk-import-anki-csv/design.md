@@ -642,6 +642,12 @@ collapsed.
 
 ### D13 — The known-set is attestation over stock's Norwegian text (supersedes D3's skip rule and D5's extraction)
 
+**Recorded ecosystem-wide as `tun/docs/07-decisions.md` D138 (the knowledge
+claim), D139 (attestation is the only admissible skip rule) and D140 (stock
+card structure carries no language signal).** Those rows are the authority;
+this section is how stabbur's importer implements them. If they diverge, the
+ADR wins.
+
 **The knowledge model, as the operator states it:** every Norwegian word
 appearing anywhere in the stock cards is known, together with every
 combination of words that is actually attested there — and nothing that is
