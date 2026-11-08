@@ -31,7 +31,7 @@ from __future__ import annotations
 import datetime
 import uuid
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Sequence, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Sequence, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -127,3 +127,37 @@ class Note(Base):
     seq: Mapped[int] = mapped_column(Integer, Sequence("notes_seq"), nullable=False, unique=True)
 
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
+
+
+SETTINGS_TRANSLATION_MERGE_MODES = ("append", "separate")
+
+
+class Settings(Base):
+    """operator-settings (design D1/D2): a single operator-preferences row.
+    stabbur is single-operator behind one shared token, so preferences are
+    singular by construction — `id` is pinned to 1 and the check constraint
+    below is the entire "at most one row" guard, no further uniqueness
+    machinery needed.
+
+    Every scalar preference is nullable: unset means "use the code-level
+    default" (settings_store.py), not "row doesn't exist yet" — the row is
+    created the first time any preference is written, never seeded by the
+    migration (D2 — a seeded row would freeze defaults at migration time)."""
+
+    __tablename__ = "settings"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_settings_singleton"),
+        CheckConstraint(
+            f"translation_merge_mode IS NULL OR translation_merge_mode IN {SETTINGS_TRANSLATION_MERGE_MODES!r}",
+            name="ck_settings_merge_mode",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    # Per enrichment kind: {"order": [provider, ...], "disabled": [provider, ...]}.
+    # Ordering and enablement only (D43) — never provider definitions,
+    # endpoints, or credentials, which stay smia's own (design D3/Non-Goals).
+    provider_prefs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    translation_merge_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    override_prefill: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    default_target_langs: Mapped[list | None] = mapped_column(JSONB, nullable=True)

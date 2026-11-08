@@ -35,6 +35,8 @@
     <div class="rail-group-label">Create</div>
     <a href="#/new-note" data-route="new-note">+ New note</a>
     <a href="#/new-grammar" data-route="new-grammar">+ New grammar rule</a>
+    <div class="rail-group-label">Config</div>
+    <a href="#/settings" data-route="settings">Settings</a>
   </div>
 
   <div class="content">
@@ -429,6 +431,57 @@
           <div style="display:flex; gap:8px; margin-top:18px;"><button type="submit" class="btn-primary">Create rule</button></div>
         </form>
         <pre id="ruleResult" class="inline-note"></pre>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" id="page-settings">
+      <div class="page-head">
+        <div>
+          <h2>Settings</h2>
+          <div class="page-sub">One operator-preferences row, stored in stabbur's own database — survives a change of browser or machine.</div>
+        </div>
+      </div>
+
+      <div class="set">
+        <div class="sgroup">
+          <h3>Provider order <span>drag to reorder · the first enabled one wins</span></h3>
+          <div id="settingsProvidersBody"></div>
+          <div class="dbnote">Providers come from smia's <span class="mono">GET /providers</span>; this page stores only your order and which are enabled.</div>
+        </div>
+
+        <div class="sgroup">
+          <h3>Translations</h3>
+          <div class="sitem">
+            <div class="txt">
+              <b>Using a second suggestion for the same language</b>
+              <p>Appending gives one row reading <span class="mono">to add / to append</span>. Separate rows keeps today's behaviour.</p>
+            </div>
+            <div class="ctl seg" id="settingsMergeModeSeg">
+              <button type="button" data-value="append">Append over “/”</button>
+              <button type="button" data-value="separate">Separate rows</button>
+            </div>
+          </div>
+          <div class="sitem">
+            <div class="txt"><b>Default target languages</b><p>Groups shown in every translation suggest panel, comma-separated.</p></div>
+            <div class="ctl"><input class="mono" type="text" id="settingsDefaultLangsInput" placeholder="en, de" style="width:150px"></div>
+          </div>
+        </div>
+
+        <div class="sgroup">
+          <h3>Lookups</h3>
+          <div class="sitem">
+            <div class="txt">
+              <b>Per-provider query starts prefilled</b>
+              <p>Reverses an earlier decision that opened the override empty so it read as a different input. Prefilled is faster to tweak; off restores the old empty-by-default behaviour.</p>
+            </div>
+            <div class="ctl">
+              <button type="button" class="switch" id="settingsOverridePrefillSwitch" aria-pressed="true" aria-label="Prefill per-provider query"></button>
+            </div>
+          </div>
+        </div>
+
+        <p id="settingsSaveResult" class="inline-note"></p>
       </div>
     </section>
 

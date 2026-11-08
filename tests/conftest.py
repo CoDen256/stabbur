@@ -36,7 +36,7 @@ import pytest  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 
-from db.models import Base, GrammarRule, Note  # noqa: E402
+from db.models import Base, GrammarRule, Note, Settings  # noqa: E402
 from db.session import get_engine, get_sessionmaker  # noqa: E402
 
 
@@ -67,6 +67,7 @@ def clean_db():
     with Session() as db:
         db.query(Note).delete()
         db.query(GrammarRule).delete()
+        db.query(Settings).delete()
         db.commit()
     yield
 

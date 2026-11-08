@@ -258,6 +258,7 @@ const routes = {
   'grammar-detail': renderGrammarDetail,
   'new-note': renderNewNote,
   'new-grammar': renderNewGrammar,
+  settings: renderSettings,
 };
 
 function parseHash() {
@@ -279,6 +280,7 @@ function showPage(route) {
     'grammar-detail': 'page-grammar-detail',
     'new-note': 'page-new-note',
     'new-grammar': 'page-new-grammar',
+    settings: 'page-settings',
   }[route];
   document.getElementById(pageId).classList.add('active');
 
@@ -1060,7 +1062,23 @@ const ENRICH_LANG_NAMES = {
 };
 function enrichLangLabel(code) { return ENRICH_LANG_NAMES[code] || code.toUpperCase(); }
 
+// operator-settings's own fallback defaults (settings_store.py's), used
+// only if a settings fetch fails outright — the editor must still be fully
+// usable before the settings page has ever been opened (design D2).
 const SUGGEST_DEFAULT_LANGS = ['en', 'de'];
+
+let _settingsCache = null;
+async function fetchSettings() {
+  if (_settingsCache) return _settingsCache;
+  const { status, body } = await api('/api/settings');
+  if (status === 200) _settingsCache = body;
+  return status === 200 ? body : {
+    translation_merge_mode: 'append',
+    override_prefill: true,
+    default_target_langs: SUGGEST_DEFAULT_LANGS,
+    providers: {},
+  };
+}
 
 let _enrichProvidersCache = null;
 async function fetchEnrichProviders() {
@@ -1444,10 +1462,21 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
     body.candidates.forEach((c) => resultBox.appendChild(renderCandidate(c, provider)));
   }
 
-  editBtn.addEventListener('click', () => {
+  editBtn.addEventListener('click', async () => {
+    const revealing = !queryWrap.classList.contains('revealed');
     queryWrap.classList.toggle('revealed');
     editBtn.classList.toggle('active', queryWrap.classList.contains('revealed'));
-    if (queryWrap.classList.contains('revealed')) input.focus();
+    if (!revealing) return;
+    input.focus();
+    // design D5 (operator-settings): prefilled with the shared query by
+    // default, reversing lemma-first-suggestions' empty-by-default choice;
+    // configurable back to empty. Collapsing without retrying still falls
+    // back to `defaultQuery` regardless (currentQuery() above), so this
+    // prefill is never mistaken for a value that was actually retried.
+    if (!input.value) {
+      const settings = await fetchSettings();
+      if (settings.override_prefill !== false) input.value = defaultQuery;
+    }
   });
 
   retryBtn.addEventListener('click', () => {
@@ -1526,6 +1555,27 @@ function renderIpaPerWord(body, providerName, renderCandidate, prefix) {
   return wrap;
 }
 
+// design D6 (operator-settings): using a candidate for a language the note
+// already has a translation for either appends to that row, separated by
+// " / " (matching smia's own /ipa merged-varieties separator), or adds a
+// separate row — whichever the operator's configured merge mode says.
+// A language with no existing row always gets a new one regardless of mode
+// (nothing to append to) — applies at point of use only, never rewrites
+// anything already stored on save.
+function useTranslationCandidate(containerId, lang, text, mergeMode, onChange) {
+  const container = document.getElementById(containerId);
+  const existingRow = Array.from(container.querySelectorAll('.translation-row'))
+    .find((row) => row.querySelector('.t-lang').value.trim().toLowerCase() === lang.toLowerCase());
+  if (existingRow && mergeMode === 'append') {
+    const textInput = existingRow.querySelector('.t-text');
+    const current = textInput.value.trim();
+    textInput.value = current ? `${current} / ${text}` : text;
+    textInput.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  addTranslationRow(containerId, lang, text, onChange);
+}
+
 function renderTranslationCandidate(prefix, lang) {
   return (c, providerName) => {
     const r = enrichEl(`
@@ -1536,9 +1586,10 @@ function renderTranslationCandidate(prefix, lang) {
         <button class="use-btn" type="button">Use</button>
       </div>
     `);
-    r.querySelector('.use-btn').addEventListener('click', (e) => {
+    r.querySelector('.use-btn').addEventListener('click', async (e) => {
       const onChange = prefix === 'e' ? updateNoteJsonView : null;
-      addTranslationRow(`${prefix}_translations_list`, lang, c.text, onChange);
+      const settings = await fetchSettings();
+      useTranslationCandidate(`${prefix}_translations_list`, lang, c.text, settings.translation_merge_mode, onChange);
       if (onChange) onChange();
       markSuggestUsed(e.target);
       enrichToast(`Added ${lang.toUpperCase()} translation from ${providerName}`);
@@ -1729,10 +1780,16 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
     });
   }
 
-  editBtn.addEventListener('click', () => {
+  editBtn.addEventListener('click', async () => {
+    const revealing = !queryWrap.classList.contains('revealed');
     queryWrap.classList.toggle('revealed');
     editBtn.classList.toggle('active', queryWrap.classList.contains('revealed'));
-    if (queryWrap.classList.contains('revealed')) input.focus();
+    if (!revealing) return;
+    input.focus();
+    if (!input.value) {
+      const settings = await fetchSettings();
+      if (settings.override_prefill !== false) input.value = defaultQuery;
+    }
   });
 
   retryBtn.addEventListener('click', () => {
@@ -1746,7 +1803,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
   return wrap;
 }
 
-function buildTranslationsSuggestPanel(prefix, providers, defaultQuery, initialForceRefresh) {
+function buildTranslationsSuggestPanel(prefix, providers, defaultQuery, initialForceRefresh, defaultLangs) {
   const wrap = enrichEl(`
     <div>
       <div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>
@@ -1773,7 +1830,11 @@ function buildTranslationsSuggestPanel(prefix, providers, defaultQuery, initialF
     groupsEl.appendChild(group);
   }
 
-  SUGGEST_DEFAULT_LANGS.forEach((lang) => addLangGroup(lang, initialForceRefresh));
+  // design D5.4 (operator-settings): the panel's language groups come from
+  // the operator's configured default target languages, not a hardcoded
+  // list — `defaultLangs` falls back to SUGGEST_DEFAULT_LANGS only if the
+  // caller couldn't resolve settings at all.
+  (defaultLangs && defaultLangs.length ? defaultLangs : SUGGEST_DEFAULT_LANGS).forEach((lang) => addLangGroup(lang, initialForceRefresh));
 
   const addBtn = wrap.querySelector('button');
   const input = wrap.querySelector('.new-lang-input');
@@ -1867,7 +1928,8 @@ async function openSuggestPanel(panelEl, { forceRefresh = false } = {}) {
 
   if (kind === 'translations') {
     const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
-    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers, defaultQuery, forceRefresh));
+    const settings = await fetchSettings();
+    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers, defaultQuery, forceRefresh, settings.default_target_langs));
     return;
   }
   if (kind === 'inflections') {
@@ -1902,3 +1964,179 @@ document.querySelectorAll('[data-suggest-toggle]').forEach((btn) => {
     else openSuggestPanel(panel);
   });
 });
+
+// ------------------------------------------------------------- settings --
+
+// Human labels/hints for the kinds stabbur proxies (routes/enrich.py's
+// ENRICHABLE_KINDS) — "tts" reads as "Audio" everywhere else in this UI,
+// so the settings page matches rather than exposing the wire name.
+const SETTINGS_KIND_ORDER = ['ipa', 'translations', 'inflections', 'tts'];
+const SETTINGS_KIND_LABELS = { ipa: 'Transcription', translations: 'Translations', inflections: 'Inflections', tts: 'Audio' };
+const SETTINGS_KIND_HINTS = {
+  ipa: 'Queried with text.',
+  translations: 'Queried with text.',
+  inflections: 'Queried with lemma — the only kind that is.',
+  tts: 'Queried with text. Manual-link providers cannot answer automatically, so a prefill run skips past them.',
+};
+
+function renumberPlist(plist) {
+  Array.from(plist.querySelectorAll('.pitem')).forEach((item, idx) => {
+    item.querySelector('.ord').textContent = String(idx + 1);
+  });
+}
+
+async function saveSettingsProviderOrder(kind, plist) {
+  const items = Array.from(plist.querySelectorAll('.pitem'));
+  const order = items.map((item) => item.dataset.provider);
+  const disabled = items
+    .filter((item) => item.querySelector('.switch').getAttribute('aria-pressed') !== 'true')
+    .map((item) => item.dataset.provider);
+  const { status, body } = await api('/api/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: { [kind]: { order, disabled } } }),
+  });
+  if (status === 200) {
+    _settingsCache = body;
+    renderSettingsProviders(body.providers || {});
+  }
+}
+
+// Reorderable per-kind provider list (4.3): drag to reorder, a switch per
+// provider to enable/disable, the effective primary and manual-link
+// providers (4.4 — forvo/filmot, same MANUAL_LINK_CAPTURE_ROUTES the
+// editor's audio panel already keys off) called out on their row.
+function renderSettingsProviders(providers) {
+  const container = document.getElementById('settingsProvidersBody');
+  container.innerHTML = '';
+  SETTINGS_KIND_ORDER.forEach((kind) => {
+    const info = providers[kind] || { order: [], disabled: [], primary: null };
+    container.appendChild(enrichEl(`
+      <div class="sitem">
+        <div class="txt"><b>${escapeHtml(SETTINGS_KIND_LABELS[kind] || kind)}</b><p>${escapeHtml(SETTINGS_KIND_HINTS[kind] || '')}</p></div>
+      </div>
+    `));
+    const sub = enrichEl(`<div class="sitem sub"><div class="plist" data-kind="${escapeHtml(kind)}"></div></div>`);
+    container.appendChild(sub);
+    const plist = sub.querySelector('.plist');
+
+    if (info.order.length === 0) {
+      plist.appendChild(enrichEl('<div class="inline-note">No providers currently configured for this kind.</div>'));
+      return;
+    }
+
+    info.order.forEach((provider, idx) => {
+      const disabled = info.disabled.includes(provider);
+      const item = enrichEl(`
+        <div class="pitem ${disabled ? 'off' : ''}" draggable="true" data-provider="${escapeHtml(provider)}">
+          <span class="grip">⠿</span>
+          <span class="ord">${idx + 1}</span>
+          <span class="nm">${escapeHtml(provider)}</span>
+          <span class="tail">
+            ${provider === info.primary ? '<span class="pill pill-accent">primary</span>' : ''}
+            ${MANUAL_LINK_CAPTURE_ROUTES[provider] ? '<span class="pill">manual link</span>' : ''}
+            <button type="button" class="switch" aria-pressed="${disabled ? 'false' : 'true'}" aria-label="Enable ${escapeHtml(provider)}"></button>
+          </span>
+        </div>
+      `);
+      plist.appendChild(item);
+    });
+
+    plist.querySelectorAll('.switch').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const wasEnabled = btn.getAttribute('aria-pressed') === 'true';
+        btn.setAttribute('aria-pressed', wasEnabled ? 'false' : 'true');
+        btn.closest('.pitem').classList.toggle('off', wasEnabled);
+        saveSettingsProviderOrder(kind, plist);
+      });
+    });
+
+    let dragEl = null;
+    plist.querySelectorAll('.pitem').forEach((item) => {
+      item.addEventListener('dragstart', () => { dragEl = item; item.classList.add('dragging'); });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        dragEl = null;
+        saveSettingsProviderOrder(kind, plist);
+      });
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!dragEl || dragEl === item) return;
+        const rect = item.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        plist.insertBefore(dragEl, before ? item : item.nextSibling);
+        renumberPlist(plist);
+      });
+    });
+  });
+}
+
+async function patchSettingsScalar(updates) {
+  const resultEl = document.getElementById('settingsSaveResult');
+  const { status, body } = await api('/api/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (status === 200) {
+    _settingsCache = body;
+    resultEl.textContent = 'Saved.';
+    setTimeout(() => { if (resultEl.textContent === 'Saved.') resultEl.textContent = ''; }, 1500);
+  } else {
+    resultEl.textContent = (body && body.error) || 'Could not save.';
+  }
+}
+
+// Wired once at script load (not inside renderSettings, which re-runs
+// every time the page is visited) — same idiom as wireChipGroup above —
+// so repeat visits never stack duplicate click listeners on these static
+// controls. renderSettings only ever updates their visual state.
+(function wireSettingsScalarControls() {
+  const seg = document.getElementById('settingsMergeModeSeg');
+  seg.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      patchSettingsScalar({ translation_merge_mode: btn.dataset.value });
+    });
+  });
+
+  document.getElementById('settingsDefaultLangsInput').addEventListener('change', (e) => {
+    const langs = e.target.value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    patchSettingsScalar({ default_target_langs: langs });
+  });
+
+  const prefillSwitch = document.getElementById('settingsOverridePrefillSwitch');
+  prefillSwitch.addEventListener('click', () => {
+    const next = prefillSwitch.getAttribute('aria-pressed') !== 'true';
+    prefillSwitch.setAttribute('aria-pressed', next ? 'true' : 'false');
+    patchSettingsScalar({ override_prefill: next });
+  });
+})();
+
+// Guards against a stale load clobbering a fresher one — e.g. the page's
+// very first render firing before the bearer token is in place (401),
+// then resolving after a later, successful re-render of the same page.
+let _settingsRenderToken = 0;
+
+async function renderSettings() {
+  const renderToken = ++_settingsRenderToken;
+  const resultEl = document.getElementById('settingsSaveResult');
+  resultEl.textContent = '';
+  const { status, body } = await api('/api/settings');
+  if (renderToken !== _settingsRenderToken) return;
+  if (status !== 200) {
+    resultEl.textContent = 'Could not load settings.';
+    return;
+  }
+  _settingsCache = body;
+
+  renderSettingsProviders(body.providers || {});
+
+  const seg = document.getElementById('settingsMergeModeSeg');
+  seg.querySelectorAll('button').forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.value === body.translation_merge_mode ? 'true' : 'false');
+  });
+  document.getElementById('settingsDefaultLangsInput').value = (body.default_target_langs || []).join(', ');
+  document.getElementById('settingsOverridePrefillSwitch').setAttribute('aria-pressed', body.override_prefill ? 'true' : 'false');
+}
