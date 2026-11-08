@@ -41,6 +41,20 @@ STAGE_OUTPUT_TABLE = {
     "merge": "candidate",
 }
 
+# A stage-output table that other stage-output tables reference by foreign
+# key must also clear those downstream tables before deleting its own rows
+# (innermost-dependent first) — otherwise re-running an earlier stage after
+# a later one has already populated the database trips the FK constraint.
+# Those downstream rows are stale anyway the moment their upstream rows are
+# replaced, so clearing them here is correct, not just FK-compliant: the
+# full re-run this supports (task 1.8) always continues on to regenerate
+# them. `verdict`/`candidate`/`decision` key by `signature_key` text, not a
+# foreign key, so they are untouched here and survive independently.
+STAGE_DOWNSTREAM_TABLES = {
+    "ingest": ("signature", "normalized"),
+    "normalize": ("signature",),
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS run (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +84,8 @@ CREATE TABLE IF NOT EXISTS raw_note (
     note_type TEXT NOT NULL,
     fields_json TEXT NOT NULL,
     tags_json TEXT NOT NULL DEFAULT '[]',
-    media_json TEXT NOT NULL DEFAULT '{}'
+    media_json TEXT NOT NULL DEFAULT '{}',
+    due INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS normalized (
@@ -133,6 +148,17 @@ CREATE TABLE IF NOT EXISTS decision (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """`CREATE TABLE IF NOT EXISTS` doesn't add columns to a table that
+    already exists on disk (e.g. this operator's real candidates.db,
+    created before `raw_note.due` existed) — add them here, guarded, so an
+    existing store picks up new columns without a destructive recreate."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(raw_note)")}
+    if "due" not in columns:
+        conn.execute("ALTER TABLE raw_note ADD COLUMN due INTEGER")
+    conn.commit()
+
+
 def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +167,7 @@ def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate(conn)
     return conn
 
 
@@ -206,11 +233,14 @@ def fail_run(conn: sqlite3.Connection, run_id: int, detail: str) -> None:
 
 
 def replace_stage_table(conn: sqlite3.Connection, stage: str) -> None:
-    """Delete all existing rows of `stage`'s output table. Never call this
-    for `review` or `push` — there is no entry for them in
-    STAGE_OUTPUT_TABLE, so passing them raises rather than silently
-    no-op'ing."""
+    """Delete all existing rows of `stage`'s output table, and of any
+    downstream stage-output table that references it by foreign key
+    (STAGE_DOWNSTREAM_TABLES). Never call this for `review` or `push` —
+    there is no entry for them in STAGE_OUTPUT_TABLE, so passing them
+    raises rather than silently no-op'ing."""
     table = STAGE_OUTPUT_TABLE[stage]
+    for downstream_table in STAGE_DOWNSTREAM_TABLES.get(stage, ()):
+        conn.execute(f"DELETE FROM {downstream_table}")
     conn.execute(f"DELETE FROM {table}")
 
 

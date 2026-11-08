@@ -158,6 +158,48 @@ def test_dry_run_produces_no_push_side_effects(dry_run_conn):
 
 
 @pytest.mark.skipif(not (_HAS_SOURCES and _HAS_STOCK), reason="needs real archives + stock bundle")
+def test_full_rerun_from_ingest_preserves_existing_decisions(tmp_path):
+    """Task 1.8: this change re-runs ingest->normalize->key->judge->merge
+    to pick up D6/D7/D8. That re-derives every raw_note/normalized/
+    signature/candidate row, so `decision` surviving untouched (the same
+    D2/task 1.3 guarantee the D13 switch already relied on) is asserted
+    here as a test, not just trusted — the second time it has mattered."""
+    import review as import_review
+
+    conn = import_store.connect(tmp_path / "candidates.db")
+    for stage, module in (
+        ("ingest", import_ingest),
+        ("normalize", import_normalize),
+        ("key", import_key),
+        ("judge", import_judge),
+        ("merge", import_merge),
+    ):
+        run_id = import_store.start_run(conn, stage)
+        module.run(conn, run_id)
+
+    first_row = conn.execute("SELECT signature_key FROM candidate WHERE verdict = 'import' LIMIT 1").fetchone()
+    import_review.record_decision(conn, first_row["signature_key"], "reject")
+    before = import_review.decided_signature_keys(conn)
+
+    for stage, module in (
+        ("ingest", import_ingest),
+        ("normalize", import_normalize),
+        ("key", import_key),
+        ("judge", import_judge),
+        ("merge", import_merge),
+    ):
+        run_id = import_store.start_run(conn, stage)
+        module.run(conn, run_id)
+
+    after = import_review.decided_signature_keys(conn)
+    assert after == before
+    assert conn.execute(
+        "SELECT decision FROM decision WHERE signature_key = ?", (first_row["signature_key"],)
+    ).fetchone()["decision"] == "reject"
+    conn.close()
+
+
+@pytest.mark.skipif(not (_HAS_SOURCES and _HAS_STOCK), reason="needs real archives + stock bundle")
 def test_rerunning_judge_after_denylist_edit_preserves_decisions_changes_verdicts(tmp_path, monkeypatch):
     import json
 

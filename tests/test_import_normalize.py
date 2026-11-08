@@ -177,6 +177,24 @@ def test_freq6k_paradigm_absent_returns_empty_list_not_error():
 
 
 # ---------------------------------------------------------------------------
+# Invisible-character normalisation (task 1.4, design D8)
+# ---------------------------------------------------------------------------
+
+
+def test_nbsp_is_normalised_to_a_plain_space():
+    assert import_normalize.normalize_invisible_chars("å\xa0starte") == "å starte"
+
+
+def test_zero_width_characters_are_normalised_by_the_same_rule():
+    assert import_normalize.normalize_invisible_chars("et​eple") == "et eple"
+    assert import_normalize.normalize_invisible_chars("en﻿etasje") == "en etasje"
+
+
+def test_normalize_invisible_chars_is_a_noop_on_clean_text():
+    assert import_normalize.normalize_invisible_chars("å diskutere") == "å diskutere"
+
+
+# ---------------------------------------------------------------------------
 # A1 Notes field polymorphism (task 3.7)
 # ---------------------------------------------------------------------------
 
@@ -283,3 +301,30 @@ def test_normalize_does_not_touch_raw_note(ingested_conn):
     import_normalize.run(ingested_conn, run_id)
     after = ingested_conn.execute("SELECT COUNT(*) FROM raw_note").fetchone()[0]
     assert before == after
+
+
+def test_normalize_leaves_no_nbsp_in_text(ingested_conn):
+    """Task 1.4/1.5: the 140 article+NBSP+word rows design.md measured are
+    fixed, and fixing them changes no signature/verdict downstream (`\\s`
+    already matched U+00A0, so article-stripping and `head_lemma` were
+    never affected — a verdict diff here would mean something else moved,
+    not this fix)."""
+    run_id = import_store.start_run(ingested_conn, "normalize")
+    import_normalize.run(ingested_conn, run_id)
+    count = ingested_conn.execute("SELECT COUNT(*) FROM normalized WHERE text LIKE '%' || CHAR(160) || '%'").fetchone()[
+        0
+    ]
+    assert count == 0
+
+
+def test_normalize_nbsp_fix_does_not_change_signature():
+    """Task 1.5: `\\s` already matched U+00A0, so the signature a
+    once-NBSP-carrying row produces is identical to the clean row's — the
+    fix changes `text`, not what `key` derives from it."""
+    import lexeme
+
+    lemma_map: dict[str, str] = {}
+    clean = import_normalize.normalize_invisible_chars("å eple")
+    was_nbsp = import_normalize.normalize_invisible_chars("å\xa0eple")
+    assert clean == was_nbsp == "å eple"
+    assert lexeme.build_signature(clean, lemma_map) == lexeme.build_signature("å\xa0eple", lemma_map)

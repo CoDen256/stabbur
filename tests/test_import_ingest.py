@@ -75,6 +75,34 @@ def test_apkg_media_refs_resolve_to_archive_member_keys():
     assert member is not None and member.isdigit()
 
 
+def test_resolve_note_due_returns_min_when_cards_agree():
+    assert import_ingest.resolve_note_due(1, [42, 42]) == 42
+
+
+def test_resolve_note_due_raises_when_cards_disagree():
+    with pytest.raises(import_ingest.IngestCountMismatch):
+        import_ingest.resolve_note_due(1, [42, 99])
+
+
+def test_resolve_note_due_returns_none_for_no_cards():
+    assert import_ingest.resolve_note_due(1, []) is None
+
+
+def test_core6k_due_is_captured_as_a_genuine_frequency_rank():
+    rows, _ = import_ingest.ingest_apkg_source("core6k")
+    core_rows = [r for r in rows if r["note_type"] == "Norwegian Core"]
+    dues = [r["due"] for r in core_rows]
+    assert all(d is not None for d in dues)
+    assert min(dues) == 1
+    assert max(dues) == 6000
+    assert len(set(dues)) == 6000
+
+
+def test_non_core6k_sources_have_no_due():
+    rows, _ = import_ingest.ingest_apkg_source("ntnu")
+    assert all(r["due"] is None for r in rows)
+
+
 def test_csv_row_count_matches_expected():
     rows = import_ingest.ingest_csv_source()
     assert len(rows) == import_ingest.CSV_EXPECTED_COUNT
@@ -122,6 +150,21 @@ def test_rerunning_ingest_replaces_raw_note_without_duplicating(conn):
     # every row now belongs to the second run, not a duplicate of the first
     assert conn.execute("SELECT COUNT(*) FROM raw_note WHERE run_id = ?", (run_id_1,)).fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM raw_note WHERE run_id = ?", (run_id_2,)).fetchone()[0] == 15262
+
+
+def test_full_ingest_run_populates_due_only_for_core6k(conn):
+    run_id = import_store.start_run(conn, "ingest")
+    import_ingest.run(conn, run_id)
+
+    non_core6k_with_due = conn.execute(
+        "SELECT COUNT(*) FROM raw_note WHERE source != 'core6k' AND due IS NOT NULL"
+    ).fetchone()[0]
+    assert non_core6k_with_due == 0
+
+    core6k_with_due = conn.execute(
+        "SELECT COUNT(*) FROM raw_note WHERE source = 'core6k' AND due IS NOT NULL"
+    ).fetchone()[0]
+    assert core6k_with_due == 6383
 
 
 def test_fields_json_round_trips_through_sqlite(conn):

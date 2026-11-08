@@ -31,6 +31,18 @@ from html import unescape
 IPA_CHARS = re.compile(r"[ɑɒæøŋɲʃʒʉʈɖɽɾɹχθðʔˈˌːˑ]")
 SOUND_REF_RE = re.compile(r"\[sound:([^\]]+)\]")
 
+# Non-breaking and zero-width characters observed (U+00A0) or plausible in
+# future sources (design D8) — a character class, not a single-codepoint
+# replacement, since nothing guarantees the next source is as clean.
+_INVISIBLE_CHARS_RE = re.compile(r"[ ​‌‍⁠﻿]")
+
+
+def normalize_invisible_chars(text: str) -> str:
+    """Maps non-breaking/zero-width characters to a plain space (task 1.4,
+    design D8) — fixed here, where `text` is produced, not hidden behind a
+    renderer."""
+    return _INVISIBLE_CHARS_RE.sub(" ", text)
+
 # ---------------------------------------------------------------------------
 # CSV (herpaberget) notation parser — task 3.1
 # ---------------------------------------------------------------------------
@@ -365,7 +377,7 @@ class NormalizeCountMismatch(AssertionError):
 def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     import store
 
-    raw_rows = conn.execute("SELECT id, source, fields_json FROM raw_note").fetchall()
+    raw_rows = conn.execute("SELECT id, source, fields_json, due FROM raw_note").fetchall()
     count_in = len(raw_rows)
 
     normalized_rows = []
@@ -376,6 +388,11 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
         result = normalizer(fields)
         result["raw_note_id"] = row["id"]
         result["source"] = row["source"]
+        result["text"] = normalize_invisible_chars(result["text"])
+        if row["source"] == "core6k" and row["due"] is not None:
+            # Its own rank, kept separate from freq6k's `frequency_index` —
+            # they order different corpora (design D6, task 1.2).
+            result["order_signal"]["core6k_rank"] = row["due"]
         normalized_rows.append(result)
         if row["source"] == "herpaberget":
             if result["note_type"] == "word":

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stabbur — import review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='review.css') }}">
+</head>
+<body>
+<header>
+  <h1>Import review</h1>
+  <div class="progress" id="progress">loading…</div>
+</header>
+
+<main>
+  <div class="card panel" id="card">
+    <div class="card-empty" id="empty" hidden>Nothing left to review.</div>
+    <div class="card-body" id="body" hidden>
+      <div class="headword-row">
+        <div class="headword" id="text"></div>
+        <div class="pos" id="pos"></div>
+      </div>
+
+      <div class="audio-row" id="audio-row" hidden>
+        <button class="play-btn" id="play-btn" type="button" aria-label="Play audio">▶</button>
+        <span class="audio-hint">press <kbd>r</kbd> to replay</span>
+      </div>
+
+      <div class="field-grid">
+        <div class="field" id="translations-field">
+          <label>Translations</label>
+          <div id="translations"></div>
+        </div>
+        <div class="field" id="transcription-field" hidden>
+          <label>Transcription</label>
+          <div id="transcription"></div>
+        </div>
+        <div class="field" id="inflections-field" hidden>
+          <label>Inflections</label>
+          <div id="inflections"></div>
+        </div>
+        <div class="field" id="context-field" hidden>
+          <label>Context</label>
+          <div id="context"></div>
+        </div>
+      </div>
+
+      <div class="evidence-row" id="evidence-row" hidden>
+        <span class="pill pill-accent" id="verdict-pill"></span>
+        <span id="evidence-detail"></span>
+      </div>
+
+      <details class="conflicts" id="conflicts" hidden>
+        <summary>Conflicting values from other sources</summary>
+        <div id="conflicts-body"></div>
+      </details>
+
+      <div class="source-row" id="sources"></div>
+    </div>
+  </div>
+
+  <div class="recent panel" id="recent-panel">
+    <h2>Recent decisions</h2>
+    <ul id="recent-list"></ul>
+  </div>
+</main>
+
+<div class="actions">
+  <button class="btn btn-reject" data-action="reject"><kbd>k</kbd> already know it</button>
+  <button class="btn btn-accept" data-action="accept"><kbd>n</kbd> new to me</button>
+  <button class="btn btn-ghost" data-action="skip"><kbd>s</kbd> skip for now</button>
+  <button class="btn btn-ghost" data-action="undo"><kbd>u</kbd> undo</button>
+  <button class="btn btn-ghost" id="help-btn" type="button"><kbd>?</kbd> help</button>
+</div>
+
+<div class="help-overlay" id="help-overlay" hidden>
+  <div class="help-panel panel">
+    <h2>Keyboard</h2>
+    <dl>
+      <dt><kbd>k</kbd></dt><dd>already know it (reject — don't import)</dd>
+      <dt><kbd>n</kbd></dt><dd>new to me (accept — import as a draft)</dd>
+      <dt><kbd>r</kbd></dt><dd>replay audio</dd>
+      <dt><kbd>u</kbd></dt><dd>undo the last decision, and the one before that, …</dd>
+      <dt><kbd>s</kbd></dt><dd>skip for now (leaves it undecided)</dd>
+      <dt><kbd>?</kbd></dt><dd>toggle this help</dd>
+    </dl>
+    <p class="help-close">press <kbd>?</kbd> or <kbd>Esc</kbd> to close</p>
+  </div>
+</div>
+
+<audio id="player" preload="auto"></audio>
+<audio id="preload-player" preload="auto" style="display:none"></audio>
+
+<script src="{{ url_for('static', filename='review.js') }}"></script>
+</body>
+</html>

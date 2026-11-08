@@ -99,6 +99,69 @@ def test_fields_are_not_averaged_concatenated_or_voted():
 
 
 # ---------------------------------------------------------------------------
+# Human-audio-only selection at merge (task 1.6, design D7)
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_with_only_synthesised_audio_records_none():
+    rows = [_row("core6k", audio_ref="hypertts-123.mp3"), _row("freq6k", audio_ref="ordpar-456.mp3")]
+    fields, sources, conflicts, _order_key = import_merge.merge_group(rows)
+    assert "audio_ref" not in fields
+    assert "audio_ref" not in sources
+    assert "audio_ref" not in conflicts
+
+
+def test_candidate_with_human_audio_keeps_it_even_if_lower_priority_source_has_synthesised():
+    rows = [
+        _row("core6k", audio_ref="hypertts-123.mp3"),
+        _row("a1_31k", audio_ref="a1-recording.mp3"),
+    ]
+    fields, sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["audio_ref"] == "a1-recording.mp3"
+    assert sources["audio_ref"] == "a1_31k"
+
+
+def test_ntnu_human_audio_outranks_a1_human_audio():
+    rows = [_row("a1_31k", audio_ref="a1-recording.mp3"), _row("ntnu", audio_ref="ntnu-recording.mp3")]
+    fields, sources, conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["audio_ref"] == "ntnu-recording.mp3"
+    assert sources["audio_ref"] == "ntnu"
+    assert conflicts["audio_ref"] == [{"source": "a1_31k", "value": "a1-recording.mp3"}]
+
+
+# ---------------------------------------------------------------------------
+# core6k rank as its own ordering tier (task 1.3, design D6)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_group_carries_core6k_rank_as_its_own_order_signal():
+    rows = [_row("core6k", order_signal={"core6k_rank": 42})]
+    _fields, _sources, _conflicts, order_key = import_merge.merge_group(rows)
+    assert order_key["core6k_rank"] == 42
+    assert order_key["frequency_index"] is None
+
+
+def test_core6k_rank_does_not_merge_with_freq6k_frequency_index():
+    rows = [_row("freq6k", order_signal={"frequency_index": 10}), _row("core6k", order_signal={"core6k_rank": 5})]
+    _fields, _sources, _conflicts, order_key = import_merge.merge_group(rows)
+    assert order_key == {"frequency_index": 10, "core6k_rank": 5, "cefr": None, "chapter": None}
+
+
+def test_candidate_with_only_core6k_rank_sorts_before_candidate_with_no_signal():
+    only_core6k = import_merge.order_sort_key({"frequency_index": None, "core6k_rank": 100, "cefr": None, "chapter": None})
+    no_signal = import_merge.order_sort_key({"frequency_index": None, "core6k_rank": None, "cefr": None, "chapter": None})
+    assert only_core6k < no_signal
+
+
+def test_freq6k_frequency_index_still_outranks_core6k_rank():
+    freq6k_signal = import_merge.order_sort_key(
+        {"frequency_index": 500, "core6k_rank": None, "cefr": None, "chapter": None}
+    )
+    core6k_signal = import_merge.order_sort_key({"frequency_index": None, "core6k_rank": 1, "cefr": None, "chapter": None})
+    assert freq6k_signal < core6k_signal
+
+
+# ---------------------------------------------------------------------------
 # order_sort_key (task 5.5, design D7)
 # ---------------------------------------------------------------------------
 
@@ -178,6 +241,39 @@ def test_cross_source_overlap_shows_merging_not_duplication(merged_conn):
 
     multi_source = sum(1 for sources in groups.values() if len(sources) > 1)
     assert multi_source > 1000  # design.md measured 2,510+733+423; this bundle measures ~3,897 — see design.md
+
+
+def test_ordering_coverage_rises_to_roughly_74_percent_with_core6k_rank(merged_conn):
+    """Task 1.3: from 2,877/7,022 (41%) to ~5,170 (74%) once core6k's rank
+    is a usable signal alongside freq6k's."""
+    import json
+
+    rows = merged_conn.execute(
+        "SELECT order_key_json FROM candidate WHERE verdict = 'import'"
+    ).fetchall()
+    total = len(rows)
+    ordered = sum(
+        1
+        for row in rows
+        if (lambda k: k["frequency_index"] is not None or k["core6k_rank"] is not None or k["cefr"] or k["chapter"])(
+            json.loads(row["order_key_json"])
+        )
+    )
+    assert total == 7022
+    assert 0.70 <= ordered / total <= 0.78
+
+
+def test_human_audio_coverage_drops_to_roughly_2100_items(merged_conn):
+    """Task 1.6: of the 6,269 queue items design.md measured carrying any
+    audio_ref before this fix, only the ~2,102 with genuine human
+    recordings should keep one afterwards."""
+    import json
+
+    rows = merged_conn.execute(
+        "SELECT fields_json FROM candidate WHERE verdict = 'import'"
+    ).fetchall()
+    with_audio = sum(1 for row in rows if json.loads(row["fields_json"]).get("audio_ref"))
+    assert 2000 <= with_audio <= 2200
 
 
 def test_merge_is_idempotent_and_does_not_touch_decision(merged_conn):

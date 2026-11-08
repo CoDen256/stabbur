@@ -36,6 +36,13 @@ import sqlite3
 # exemption from the known-set filter or merge priority.
 SOURCE_PRIORITY = ("ntnu", "a1_31k", "core6k", "freq6k", "herpaberget")
 
+# Design D7/D10 — only these two sources ever supply human recordings;
+# `audio_ref` is selected from this subset only (task 1.6), so a candidate
+# whose only audio is core6k's `hypertts-*`/freq6k's `ordpar-*` records
+# none, rather than picking a synthesised file that `push`'s own filter
+# (task 7.1) would discard anyway.
+HUMAN_AUDIO_SOURCES = frozenset({"ntnu", "a1_31k"})
+
 MERGE_FIELDS = (
     "note_type",
     "text",
@@ -44,7 +51,6 @@ MERGE_FIELDS = (
     "context_text",
     "transcription",
     "inflections",
-    "audio_ref",
 )
 
 _CEFR_TAG_PREFIX = "CEFR::"
@@ -103,13 +109,40 @@ def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
             if losers:
                 conflicts[field] = losers
 
+    # `audio_ref` is selected only from human-recorded sources (design D7,
+    # task 1.6) — a non-human source's file is never a candidate winner,
+    # and never recorded as a conflict either, because it's audio no
+    # candidate will ever actually carry.
+    audio_winner_value = None
+    audio_winner_source = None
+    audio_losers: list[dict] = []
+    for row in ordered_rows:
+        if row["source"] not in HUMAN_AUDIO_SOURCES:
+            continue
+        value = row["audio_ref"]
+        if _is_empty(value):
+            continue
+        if audio_winner_value is None:
+            audio_winner_value = value
+            audio_winner_source = row["source"]
+        elif value != audio_winner_value:
+            audio_losers.append({"source": row["source"], "value": value})
+    if audio_winner_value is not None:
+        fields["audio_ref"] = audio_winner_value
+        sources["audio_ref"] = audio_winner_source
+        if audio_losers:
+            conflicts["audio_ref"] = audio_losers
+
     frequency_index = None
+    core6k_rank = None
     cefr_tag = None
     chapter = None
     for row in ordered_rows:
         order_signal = row["order_signal"]
         if frequency_index is None and order_signal.get("frequency_index") is not None:
             frequency_index = order_signal["frequency_index"]
+        if core6k_rank is None and order_signal.get("core6k_rank") is not None:
+            core6k_rank = order_signal["core6k_rank"]
         if cefr_tag is None:
             found = _cefr_tag(row["tags"])
             if found is not None:
@@ -117,7 +150,12 @@ def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
         if chapter is None and order_signal.get("kapittel"):
             chapter = order_signal["kapittel"]
 
-    order_key = {"frequency_index": frequency_index, "cefr": cefr_tag, "chapter": chapter}
+    order_key = {
+        "frequency_index": frequency_index,
+        "core6k_rank": core6k_rank,
+        "cefr": cefr_tag,
+        "chapter": chapter,
+    }
 
     return fields, sources, conflicts, order_key
 
@@ -125,12 +163,20 @@ def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
 def order_sort_key(order_key: dict) -> tuple:
     """A candidate with no ranking signal sorts after one that has any
     (task 5.5's review-ordering requirement) — `None` always sorts last
-    within its own tier via the `(has_signal, value)` pairing below."""
+    within its own tier via the `(has_signal, value)` pairing below.
+
+    `core6k_rank` is its own tier, not merged into `frequency_index`
+    (design D6 — they rank different corpora and a combined number would
+    be fabricated): freq6k's ranking takes priority when both exist, but a
+    candidate with only a core6k rank still sorts ahead of one with
+    neither (task 1.3)."""
     frequency_index = order_key.get("frequency_index")
+    core6k_rank = order_key.get("core6k_rank")
     cefr = order_key.get("cefr")
     chapter = order_key.get("chapter")
     return (
         (0, frequency_index) if frequency_index is not None else (1, 0),
+        (0, core6k_rank) if core6k_rank is not None else (1, 0),
         (0, cefr) if cefr is not None else (1, ""),
         (0, chapter) if chapter is not None else (1, ""),
     )

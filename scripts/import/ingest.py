@@ -73,7 +73,9 @@ class IngestCountMismatch(AssertionError):
     pass
 
 
-def _read_apkg(path: Path) -> tuple[list[sqlite3.Row], dict[int, str], dict[int, list[str]], dict[str, str]]:
+def _read_apkg(
+    path: Path,
+) -> tuple[list[sqlite3.Row], dict[int, str], dict[int, list[str]], dict[str, str], dict[int, list[int]]]:
     with zipfile.ZipFile(path) as archive:
         media_by_member = json.loads(archive.read("media").decode("utf-8"))
         filename_to_member = {filename: member for member, filename in media_by_member.items()}
@@ -92,9 +94,12 @@ def _read_apkg(path: Path) -> tuple[list[sqlite3.Row], dict[int, str], dict[int,
             model_fields_by_id = {int(mid): [f["name"] for f in m["flds"]] for mid, m in models.items()}
 
             notes = conn.execute("SELECT id, mid, tags, flds FROM notes").fetchall()
+            note_dues: dict[int, list[int]] = {}
+            for card in conn.execute("SELECT nid, due FROM cards").fetchall():
+                note_dues.setdefault(card["nid"], []).append(card["due"])
             conn.close()
 
-    return notes, model_name_by_id, model_fields_by_id, filename_to_member
+    return notes, model_name_by_id, model_fields_by_id, filename_to_member, note_dues
 
 
 def _resolve_media(fields: dict[str, str], filename_to_member: dict[str, str]) -> dict[str, str | None]:
@@ -105,12 +110,28 @@ def _resolve_media(fields: dict[str, str], filename_to_member: dict[str, str]) -
     return media
 
 
+def resolve_note_due(note_id: int, dues: list[int]) -> int | None:
+    """One note's cards (2, for core6k) must agree on `due` — it's a
+    per-note frequency rank, not a per-card scheduling value here, and
+    picking one arbitrarily if they disagreed would silently hide a bad
+    assumption (task 1.1)."""
+    if not dues:
+        return None
+    distinct = set(dues)
+    if len(distinct) != 1:
+        raise IngestCountMismatch(
+            f"core6k note {note_id}: its cards' due values disagree ({sorted(distinct)}), "
+            "expected every card on a note to share the same frequency rank"
+        )
+    return min(dues)
+
+
 def ingest_apkg_source(source: str) -> tuple[list[dict], int]:
     """Returns (raw rows for allowed models, total note count across every
     model in the archive — including excluded ones, for the discard count)."""
     spec = APKG_SOURCES[source]
     path = IMPORT_DIR / spec["file"]
-    notes, model_name_by_id, model_fields_by_id, filename_to_member = _read_apkg(path)
+    notes, model_name_by_id, model_fields_by_id, filename_to_member, note_dues = _read_apkg(path)
 
     rows = []
     for note in notes:
@@ -123,6 +144,9 @@ def ingest_apkg_source(source: str) -> tuple[list[dict], int]:
         fields = dict(zip(field_names, values))
         tags = [t for t in note["tags"].split(" ") if t]
         media = _resolve_media(fields, filename_to_member)
+
+        due = resolve_note_due(note["id"], note_dues.get(note["id"], [])) if source == "core6k" else None
+
         rows.append(
             {
                 "source": source,
@@ -131,6 +155,7 @@ def ingest_apkg_source(source: str) -> tuple[list[dict], int]:
                 "fields": fields,
                 "tags": tags,
                 "media": media,
+                "due": due,
             }
         )
     return rows, len(notes)
@@ -164,6 +189,7 @@ def ingest_csv_source() -> list[dict]:
                         "fields": fields,
                         "tags": [],
                         "media": {},
+                        "due": None,
                     }
                 )
     return rows
@@ -194,8 +220,8 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     for row in all_rows:
         conn.execute(
             """
-            INSERT INTO raw_note (run_id, source, source_note_id, note_type, fields_json, tags_json, media_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO raw_note (run_id, source, source_note_id, note_type, fields_json, tags_json, media_json, due)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -205,6 +231,7 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
                 json.dumps(row["fields"], ensure_ascii=False),
                 json.dumps(row["tags"], ensure_ascii=False),
                 json.dumps(row["media"], ensure_ascii=False),
+                row["due"],
             ),
         )
     conn.commit()

@@ -32,6 +32,37 @@ Environment facts that shape the options: Flask is already in
 and `cvlc` exist on this machine; `ui/ui.css` (429 lines) is an existing
 visual language for stabbur's own operator UI.
 
+**Measured, post-fix (task 5.5 — corrected in place, repo convention):**
+after re-running `ingest`→`normalize`→`key`→`judge`→`merge` with D6/D7/D8
+landed, against the same real archives:
+
+```
+review queue                               7,022   (unchanged — merge's
+                                                     verdict counts don't
+                                                     move; only ordering
+                                                     and audio signal do)
+
+ordering signal
+  ranked (freq6k / core6k / CEFR / chapter) 5,221   (74.4%, up from 41%)
+  NO signal at all                          1,801   (25.6%, mostly a1_31k)
+
+audio_ref present (human-only, post-D7)     2,102   (29.9%, down from
+                                                     6,269/89% when
+                                                     synthesised audio
+                                                     still won the field)
+
+text containing U+00A0                          0   (down from 140)
+```
+
+The 2 decisions recorded before this change (`den`, `man`, both `reject`)
+survived the full re-run unchanged — asserted as
+`test_full_rerun_from_ingest_preserves_existing_decisions`
+(tests/test_import_verification.py), not just observed. The first
+screenful of the re-ordered queue (task 5.2) is genuinely common
+vocabulary — `å starte`, `januar`, `februar`, `en grad`, `historie`,
+`svær`, `å skape`, `en and`, `et spill`, `en kontakt`, `juni` — rather
+than the arbitrary mix the 41%-covered queue produced.
+
 ## Goals / Non-Goals
 
 **Goals:**

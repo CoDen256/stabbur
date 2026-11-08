@@ -1,6 +1,6 @@
 """
-scripts/import/review.py — section 6: interactive accept/reject/edit over
-`candidate`, writing only to `decision` (tasks 6.1-6.4, design D1).
+scripts/import/review.py — review over `candidate`, writing only to
+`decision` (tasks 6.1-6.4, design D1; import-review-web tasks 2.1-2.2).
 
 Local to this tool, not the stabbur UI (design D1) — the operator reviews
 candidates *before* they become notes; putting review in stabbur's own UI
@@ -18,7 +18,11 @@ Decisions are written only to `decision`, keyed by signature, never to
 and merge can be re-run after a known-set or priority fix without losing
 review. Resuming re-derives the queue position from what's already in
 `decision` rather than storing a separate cursor (task 6.4).
-"""
+
+The terminal loop (`run_interactive`) and its `[e]dit` branch are gone
+(import-review-web design D4/D1) — `scripts/import/web.py` is the only
+front end over these functions now, and review is pure triage: no action
+here ever writes `edited_fields_json`."""
 
 from __future__ import annotations
 
@@ -54,27 +58,62 @@ def progress(conn: sqlite3.Connection) -> tuple[int, int]:
     return reviewed, len(all_in_queue) - reviewed
 
 
-def record_decision(
-    conn: sqlite3.Connection, signature_key: str, decision: str, edited_fields: dict | None = None
-) -> None:
+def record_decision(conn: sqlite3.Connection, signature_key: str, decision: str) -> None:
     """`decision` is `"accept"` or `"reject"`. Writes only to `decision`
     (task 6.3), upserting so re-reviewing a candidate replaces its own
-    prior decision without touching anyone else's."""
+    prior decision without touching anyone else's.
+
+    Takes no `edited_fields` — review is triage only (design D4, task
+    3.4); `edited_fields_json` stays in the schema but no caller of this
+    function can write to it."""
     if decision not in ("accept", "reject"):
         raise ValueError(f"decision must be 'accept' or 'reject', got {decision!r}")
     decided_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     conn.execute(
         """
         INSERT INTO decision (signature_key, decision, edited_fields_json, decided_at)
-        VALUES (?, ?, ?, ?)
+        VALUES (?, ?, NULL, ?)
         ON CONFLICT(signature_key) DO UPDATE SET
             decision = excluded.decision,
-            edited_fields_json = excluded.edited_fields_json,
+            edited_fields_json = NULL,
             decided_at = excluded.decided_at
         """,
-        (signature_key, decision, json.dumps(edited_fields, ensure_ascii=False) if edited_fields else None, decided_at),
+        (signature_key, decision, decided_at),
     )
     conn.commit()
+
+
+def undo_last_decision(conn: sqlite3.Connection) -> str | None:
+    """Reverses the most recently made decision (design D5, task 3.6),
+    deleting it so the candidate re-enters `pending_queue`. Returns the
+    undone signature_key, or None if there is nothing to undo.
+
+    Repeated calls step back one further each time — `decided_at` strictly
+    orders each decision, with `id` as a tie-breaker since the timestamp's
+    resolution can't distinguish two decisions recorded in the same
+    instant."""
+    row = conn.execute("SELECT signature_key FROM decision ORDER BY decided_at DESC, id DESC LIMIT 1").fetchone()
+    if row is None:
+        return None
+    conn.execute("DELETE FROM decision WHERE signature_key = ?", (row["signature_key"],))
+    conn.commit()
+    return row["signature_key"]
+
+
+def recent_decisions(conn: sqlite3.Connection, limit: int = 6) -> list[sqlite3.Row]:
+    """The most recently made decisions, newest first (design D5's "keep
+    the last several visible" requirement) — joined against `candidate` so
+    the UI can show what was decided, not just a bare signature key."""
+    return conn.execute(
+        """
+        SELECT d.signature_key, d.decision, d.decided_at, c.fields_json
+        FROM decision d
+        JOIN candidate c ON c.signature_key = d.signature_key
+        ORDER BY d.decided_at DESC, d.id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
 
 
 def format_candidate(row: sqlite3.Row) -> str:
@@ -105,44 +144,28 @@ def format_candidate(row: sqlite3.Row) -> str:
     return "\n".join(lines)
 
 
-def run_interactive(conn: sqlite3.Connection, input_fn=input, print_fn=print) -> int:
-    """Drives the terminal review loop. Returns the number of decisions
-    recorded this session. `input_fn`/`print_fn` are overridable for
-    scripted/non-interactive use (e.g. a future batch-review helper), not
-    for unit testing — the pure functions above cover that."""
-    pending = pending_queue(conn)
-    reviewed, remaining = progress(conn)
-    print_fn(f"review: {reviewed} reviewed, {remaining} remaining")
+def run(conn: sqlite3.Connection, run_id: int, host: str = "127.0.0.1", port: int = 5057) -> tuple[int, int, int]:
+    """Stage entrypoint (task 2.2). Unlike the other stages, `review` has
+    no entry in `store.STAGE_OUTPUT_TABLE` — it never replaces a table
+    wholesale, only appends/upserts into `decision` (task 1.5's own
+    documented exception).
 
-    recorded = 0
-    for row in pending:
-        print_fn(format_candidate(row))
-        choice = input_fn("[a]ccept / [r]eject / [e]dit then accept / [s]kip for now / [q]uit: ").strip().lower()
-        if choice == "q":
-            break
-        if choice == "a":
-            record_decision(conn, row["signature_key"], "accept")
-            recorded += 1
-        elif choice == "r":
-            record_decision(conn, row["signature_key"], "reject")
-            recorded += 1
-        elif choice == "e":
-            edited_fields = {}
-            while True:
-                field = input_fn("field to edit (blank to finish): ").strip()
-                if not field:
-                    break
-                edited_fields[field] = input_fn(f"new value for {field!r}: ").strip()
-            record_decision(conn, row["signature_key"], "accept", edited_fields=edited_fields or None)
-            recorded += 1
-        # anything else (including 's'): leave undecided, move to the next
-    return recorded
+    Launches `web.py`'s localhost Flask server and blocks until the
+    operator stops it (Ctrl+C) — there is no terminal loop any more
+    (import-review-web design D1/D4); every decision is written by the
+    server's own routes via `record_decision` as the operator reviews."""
+    import web
 
-
-def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
-    """Stage entrypoint. Unlike the other stages, `review` has no entry in
-    `store.STAGE_OUTPUT_TABLE` — it never replaces a table wholesale, only
-    appends/upserts into `decision` (task 1.5's own documented exception)."""
     total_queue = len(queue(conn))
-    recorded = run_interactive(conn)
-    return total_queue, recorded, 0
+    reviewed_before, _ = progress(conn)
+
+    app = web.create_app(conn)
+    print(f"review: {total_queue} in queue, {reviewed_before} already reviewed")
+    print(f"review: open http://{host}:{port}")
+    try:
+        app.run(host=host, port=port)
+    except KeyboardInterrupt:
+        pass
+
+    reviewed_after, _ = progress(conn)
+    return total_queue, reviewed_after - reviewed_before, 0

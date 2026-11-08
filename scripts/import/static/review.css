@@ -1,0 +1,154 @@
+/* Matches ui/ui.css's visual language (design D2/task 3.2) — same custom
+   properties and the same panel/pill/btn component shapes, so this is
+   recognizably the same operator tool, not an invented second style. */
+:root {
+  --bg: #f5f3ef;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #ebe7e0;
+  --border: #e2ddd3;
+  --border-soft: #ece8e0;
+  --text: #221f1a;
+  --text-dim: #6b6660;
+  --text-faint: #9a948a;
+  --accent: #b35a2d;
+  --accent-soft: #b35a2d14;
+  --accent-text: #8a431c;
+  --ok: #2f8a5c;
+  --ok-soft: #2f8a5c14;
+  --warn: #a87c1f;
+  --warn-soft: #a87c1f14;
+  --err: #b23a34;
+  --err-soft: #b23a3414;
+  --radius: 6px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --bg-elevated: #1b1f26; --bg-sunken: #0f1216;
+    --border: #2a3039; --border-soft: #232832;
+    --text: #e8e6e1; --text-dim: #8b94a3; --text-faint: #566073;
+    --accent: #c6703f; --accent-soft: #c6703f26; --accent-text: #f2b688;
+    --ok: #5bab7e; --ok-soft: #5bab7e1f;
+    --warn: #d4a73d; --warn-soft: #d4a73d1f;
+    --err: #d1453f; --err-soft: #d1453f1f;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+h1, h2 { font-weight: 650; margin: 0; }
+
+header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+header h1 { font-size: 16px; }
+.progress { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 20px;
+  padding: 24px 28px 12px;
+  max-width: 1000px;
+  width: 100%;
+  margin: 0 auto;
+}
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.card { padding: 28px 32px; min-height: 360px; }
+.card-empty { color: var(--text-dim); font-size: 15px; padding: 40px 0; text-align: center; }
+
+.headword-row { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+.headword { font-size: 34px; font-weight: 650; }
+.pos { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+
+.audio-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.play-btn {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; border: none; cursor: pointer;
+  font-size: 14px; padding: 0;
+}
+.play-btn:hover { filter: brightness(1.08); }
+.audio-hint { font-size: 12px; color: var(--text-faint); }
+
+.field-grid { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+.field label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); margin-bottom: 4px; }
+.field > div { font-size: 15px; }
+.translation-item { display: inline-block; margin-right: 10px; }
+.translation-item .lang { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; margin-right: 3px; }
+.inflection-item { display: inline-block; margin-right: 14px; font-size: 13.5px; }
+.inflection-item .key { color: var(--text-faint); margin-right: 4px; }
+
+.evidence-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; color: var(--text-dim); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 600;
+  padding: 2px 9px 3px; border-radius: 99px;
+}
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill-accent { background: var(--accent-soft); color: var(--accent-text); }
+
+.conflicts summary { cursor: pointer; font-size: 12.5px; color: var(--text-dim); margin-bottom: 6px; }
+.conflicts div { font-size: 13px; color: var(--text-dim); }
+
+.source-row { font-size: 11.5px; color: var(--text-faint); margin-top: 18px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.source-row .source-chip { display: inline-block; margin-right: 10px; }
+
+.recent { padding: 18px 20px; }
+.recent h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); margin-bottom: 10px; }
+#recent-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#recent-list li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+#recent-list li:last-child { border-bottom: none; padding-bottom: 0; }
+#recent-list .decision-accept { color: var(--ok); }
+#recent-list .decision-reject { color: var(--err); }
+
+.actions {
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  padding: 14px 20px 26px;
+}
+.btn {
+  font: inherit; font-weight: 600; font-size: 13px;
+  padding: 9px 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+}
+.btn:hover { border-color: var(--text-faint); }
+.btn-accept { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.btn-reject { background: var(--err-soft); border-color: var(--err); color: var(--err); }
+.btn-ghost { background: transparent; color: var(--text-dim); }
+kbd {
+  font: inherit; font-size: 11px; font-family: ui-monospace, monospace;
+  background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 6px; color: var(--text-dim);
+}
+
+.help-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  display: flex; align-items: center; justify-content: center; z-index: 10;
+}
+.help-panel { padding: 24px 28px; max-width: 360px; }
+.help-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 14px 0; align-items: center; }
+.help-panel dt { text-align: right; }
+.help-panel dd { margin: 0; font-size: 13.5px; color: var(--text-dim); }
+.help-close { font-size: 12px; color: var(--text-faint); margin: 0; }
