@@ -12,15 +12,15 @@
 
 ## 2. Ingest (verbatim)
 
-- [ ] 2.1 `.apkg` reader: open as zip, read `collection.anki21` (all four are legacy plain SQLite — confirm, do not assume), decode `notes.flds` on `\x1f`, resolve the note type from `col.models` to get field names.
-- [ ] 2.2 Media mapping: parse the `media` JSON (numeric key → original filename) to resolve `[sound:...]` references to archive members.
-- [ ] 2.3 Per-source field mapping into `raw_note`, preserving original values untouched:
+- [x] 2.1 `.apkg` reader: open as zip, read `collection.anki21` (all four are legacy plain SQLite — confirm, do not assume), decode `notes.flds` on `\x1f`, resolve the note type from `col.models` to get field names.
+- [x] 2.2 Media mapping: parse the `media` JSON (numeric key → original filename) to resolve `[sound:...]` references to archive members.
+- [x] 2.3 Per-source field mapping into `raw_note`, preserving original values untouched:
   - NTNU — `Audio, Article, Word, Transcription, Inflection, English` (749)
   - A1 31k — `Front, Back, Notes, Level, Audio 1` (3,097)
   - core6k — `Norwegian Core` + `Country` models only (6,383); **exclude the `Grammar` model** (225, design D9)
-  - freq6k — `6000 Most Frequent Norwegian Words` model only (3,882); exclude the `Read me` model
-- [ ] 2.4 CSV reader for the seven `Her-på-berget` chapter exports: skip blank rows; a row with only column 0 populated is a section header to carry down; `Kapittel` values are not all numeric (`11 Ord og begreper` exists) — do not parse them as ints.
-- [ ] 2.5 Assert expected row counts per source at the ingest boundary (749 / 3,097 / 6,383 / 3,882 / 1,152) so a parser regression fails loudly rather than silently importing less.
+  - freq6k — `6000 Most Frequent Norwegian Words` model only (3,881; design.md's 3,882 was the deck total including the 1 `Read me` note); exclude the `Read me` model
+- [x] 2.4 CSV reader for the seven `Her-på-berget` chapter exports: skip blank rows; a row with only column 0 populated is a section header to carry down; `Kapittel` values are not all numeric (`11 Ord og begreper` exists) — do not parse them as ints.
+- [x] 2.5 Assert expected row counts per source at the ingest boundary (749 / 3,097 / 6,383 / 3,881 / 1,152) so a parser regression fails loudly rather than silently importing less.
 
 ## 3. Normalize
 
@@ -86,4 +86,4 @@
 
 - [ ] 9.1 Verify A1's audio is genuinely human by listening to a sample (design risk — if synthesised, coverage falls from ~35% to ~8%).
 - [ ] 9.2 Decide whether the ~1,100 sentence-shaped A1 candidates need near-duplicate detection against each other; lexeme signatures do not apply to sentences. Record the decision either way.
-- [ ] 9.3 Decide whether freq6k's 3,882 ordbok articles should serve as a general Norwegian lexicon across the whole pipeline rather than only for its own words.
+- [ ] 9.3 Decide whether freq6k's 3,881 ordbok articles should serve as a general Norwegian lexicon across the whole pipeline rather than only for its own words.

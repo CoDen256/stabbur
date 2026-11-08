@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS raw_note (
     source_note_id TEXT NOT NULL,
     note_type TEXT NOT NULL,
     fields_json TEXT NOT NULL,
-    tags_json TEXT NOT NULL DEFAULT '[]'
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    media_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS normalized (

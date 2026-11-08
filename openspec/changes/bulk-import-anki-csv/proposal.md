@@ -3,7 +3,7 @@
 stabbur has a working authoring loop but almost no content. Four Anki decks
 and a textbook wordlist sitting in `import/` hold roughly 9,100 distinct
 Norwegian lexemes with ~3,600 human audio recordings, 681 IPA
-transcriptions, part-of-speech for 3,882 words, and a frequency ranking that
+transcriptions, part-of-speech for 3,881 words, and a frequency ranking that
 orders them by usefulness. Typing that in by hand is not realistic.
 
 The complication is that the operator already knows the entire stock Mjølnir

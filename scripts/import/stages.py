@@ -18,7 +18,9 @@ def ingest(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 2: parse the four `.apkg` archives and seven CSV chapter
     exports verbatim into `raw_note`. Returns (count_in, count_out,
     count_discarded)."""
-    raise NotImplementedError("ingest lands in section 2 (tasks 2.1-2.5)")
+    import ingest as ingest_stage
+
+    return ingest_stage.run(conn, run_id)
 
 
 def normalize(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:

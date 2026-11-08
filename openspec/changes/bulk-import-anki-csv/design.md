@@ -4,6 +4,12 @@ Everything below rests on measurements taken against the actual files, not
 estimates. The numbers are recorded here because several of them overturned
 an earlier, more obvious design.
 
+**Correction (implementation, section 2):** the original pass counted
+`freq6k`'s deck total (3,882 notes) and used that figure for the
+model-filtered note count too. The deck's 1 `Read me` note is excluded at
+ingest (task 2.3), so the real count feeding the rest of the pipeline is
+3,881, not 3,882. Updated at every place this count appears below.
+
 **The five sources** (`import/`, gitignored):
 
 | source | notes | fields | audio | audio verdict |
@@ -11,7 +17,7 @@ an earlier, more obvious design.
 | NTNU NoW 1 | 749 | `Audio, Article, Word, Transcription, Inflection, English` | 646 mp3, 44/48 kHz, 128–237 kbps, 646 distinct hashes | human |
 | A1 Words & Sentences | 3,097 | `Front, Back, Notes, Level, Audio 1` | 2,924 mp3, varied rates, ID3 titles, 22 dup groups | human (collected corpus) |
 | Bokmål Core 6k | 6,608 (6,192 Core + 191 Country + 225 Grammar) | `Norwegian-Word, Norwegian-Sentence, English-Word, English-Sentence, Audio, Note, Inflections` | 6,378 `hypertts-*` ogg/mp3 | **machine TTS — rejected** |
-| 6000 Most Frequent (Part 1) | 3,882 | `Frequency index, Norwegian word, Word class, English translation, Dictionary entry` | 31,084 `ordpar-*` mp3, uniformly 24 kHz/48 kbps, single encoder, ~8 per note | **machine TTS — rejected** |
+| 6000 Most Frequent (Part 1) | 3,882 (3,881 `6000 Most Frequent Norwegian Words` + 1 `Read me`, excluded) | `Frequency index, Norwegian word, Word class, English translation, Dictionary entry` | 31,084 `ordpar-*` mp3, uniformly 24 kHz/48 kbps, single encoder, ~8 per note | **machine TTS — rejected** |
 | Her på berget wordlist | 1,152 (1,094 distinct) | `Kapittel, Original word, Explanation (no), Explanation (en), Example (no), Example (en)` | none | — |
 
 Five sources, five mutually incompatible field models. There is no shared
@@ -164,7 +170,7 @@ built from data already on disk:
 
 | source | inflection data |
 |---|---|
-| `freq6k` | full ordbok dictionary article per word, 3,882 of them, plus `Word class` |
+| `freq6k` | full ordbok dictionary article per word, 3,881 of them (the deck's 1 `Read me` note excluded), plus `Word class` |
 | NTNU | `Inflection` field, comma-separated |
 | `core6k` | `Inflections` HTML `<table>` |
 | CSV | `/et` `/en` `/ei` gender markers (372), `/-dde` past suffixes (100), `(fastsatte)` irregulars (80) |
@@ -384,5 +390,5 @@ collapsed.
   reject during review.
 - **Open**: whether `freq6k`'s ordbok articles should be mined as a general
   Norwegian lexicon for the whole pipeline rather than only for lemma
-  resolution of its own 3,882 words. It is the best lexical resource on disk
+  resolution of its own 3,881 words. It is the best lexical resource on disk
   and currently underused.
