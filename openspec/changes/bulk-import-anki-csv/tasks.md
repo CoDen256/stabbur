@@ -1,14 +1,14 @@
 ## 0. Prerequisite
 
-- [ ] 0.1 `note-origin-provenance` is implemented and merged — `POST /api/notes` must accept `origin=import` + `import_ref` before stage 6 can run. Stages 1–5 can be built against it unmerged.
+- [x] 0.1 `note-origin-provenance` is implemented and merged — `POST /api/notes` must accept `origin=import` + `import_ref` before stage 6 can run. Stages 1–5 can be built against it unmerged.
 
 ## 1. Tool skeleton and candidate store
 
-- [ ] 1.1 Create the tool under `scripts/import/` — a CLI with one subcommand per stage (`ingest`, `normalize`, `key`, `judge`, `merge`, `review`, `push`) plus `status`. Not wired into `app.py`; nothing added to `compose.yaml`.
-- [ ] 1.2 SQLite candidate store at `import/candidates.db` (already gitignored via `/import`). Schema: `run`, `raw_note`, `normalized`, `signature`, `verdict`, `candidate`, `decision`, `log`.
-- [ ] 1.3 **`decision` is stored in its own table, keyed by lexeme signature — not on `candidate`.** This is what lets `judge`/`merge` be re-run without losing review (design D2). Enforce it: no stage other than `review` may write to `decision`.
-- [ ] 1.4 Every stage records start/end, counts in/out/discarded, and its `run_id` to `log`. `status` prints the per-stage state so an interrupted run is legible.
-- [ ] 1.5 Each stage is idempotent: re-running replaces only its own output table for that run, never a prior stage's and never `decision`.
+- [x] 1.1 Create the tool under `scripts/import/` — a CLI with one subcommand per stage (`ingest`, `normalize`, `key`, `judge`, `merge`, `review`, `push`) plus `status`. Not wired into `app.py`; nothing added to `compose.yaml`.
+- [x] 1.2 SQLite candidate store at `import/candidates.db` (already gitignored via `/import`). Schema: `run`, `raw_note`, `normalized`, `signature`, `verdict`, `candidate`, `decision`, `log`.
+- [x] 1.3 **`decision` is stored in its own table, keyed by lexeme signature — not on `candidate`.** This is what lets `judge`/`merge` be re-run without losing review (design D2). Enforce it: no stage other than `review` may write to `decision`.
+- [x] 1.4 Every stage records start/end, counts in/out/discarded, and its `run_id` to `log`. `status` prints the per-stage state so an interrupted run is legible.
+- [x] 1.5 Each stage is idempotent: re-running replaces only its own output table for that run, never a prior stage's and never `decision`.
 
 ## 2. Ingest (verbatim)
 
