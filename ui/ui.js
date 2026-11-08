@@ -428,7 +428,6 @@ async function renderNoteDetail(id) {
 
   updateEditInflectionFields(note.pos, note.inflections);
   updateEditFieldVisibility();
-  updateLemmaSuggestVisibility('e', 'e_pos_select', 'e_pos_custom');
   resetSuggestQueries('e');
   updateNoAudioWarning();
   updateNoteJsonView();
@@ -467,7 +466,6 @@ wirePosCustomToggle('e_pos_select', 'e_pos_custom', () => {
     ? typedValues
     : (currentNote && currentNote.pos === pos ? currentNote.inflections : null);
   updateEditInflectionFields(pos, values);
-  updateLemmaSuggestVisibility('e', 'e_pos_select', 'e_pos_custom');
   updateNoteJsonView();
 });
 document.getElementById('e_add_translation').addEventListener('click', () => {
@@ -917,7 +915,6 @@ function updateNewNoteFieldVisibility() {
     document.getElementById('c_inflections_field').style.display = 'none';
     document.getElementById('c_inflections_fields').innerHTML = '';
   }
-  updateLemmaSuggestVisibility('c', 'c_pos', 'c_pos_custom');
 }
 
 function updateNewNoteInflectionFields() {
@@ -925,12 +922,15 @@ function updateNewNoteInflectionFields() {
   const shaped = !!INFLECTION_SHAPES[pos];
   document.getElementById('c_inflections_field').style.display = shaped ? 'block' : 'none';
   renderInflectionFields('c_inflections_fields', pos);
-  updateLemmaSuggestVisibility('c', 'c_pos', 'c_pos_custom');
 }
 
 wirePosCustomToggle('c_pos', 'c_pos_custom', updateNewNoteInflectionFields);
 
-async function renderNewNote() {
+// Clears every c_-prefixed field, the translations list, the inflection
+// fields, and the suggest controls' queries/dirty flags — so a note never
+// outlives its own form (editor-session-hygiene). Run on a successful
+// create and on every entry to the new-note route.
+function resetCreateForm() {
   document.getElementById('createForm').reset();
   document.getElementById('c_source_lang').value = 'no';
   document.getElementById('createResult').textContent = '';
@@ -939,6 +939,10 @@ async function renderNewNote() {
   updateNewNoteFieldVisibility();
   updateNewNoteInflectionFields();
   resetSuggestQueries('c');
+}
+
+async function renderNewNote() {
+  resetCreateForm();
   await populateGrammarRuleSelect(document.getElementById('c_grammar_rule_id'), null);
 }
 
@@ -999,7 +1003,7 @@ async function submitNewNote(status) {
     }
   }
 
-  newNoteAudioFromSuggest = null;
+  resetCreateForm();
   location.hash = `#/notes/${body.id}`;
 }
 
@@ -1079,25 +1083,44 @@ function querySuggestControls(prefix) {
   });
 }
 
-// Syncs every suggest-control's query field to the current lemma||text,
-// skipping any control the operator has directly edited (`dirty`) so an
-// unrelated field edit never clobbers a deliberate override.
+function suggestControlPanel(control) {
+  const btn = control.querySelector('[data-suggest-toggle]');
+  return btn && document.getElementById(btn.dataset.suggestToggle);
+}
+
+function panelsForPrefix(prefix) {
+  return Array.from(document.querySelectorAll('.suggest-panel')).filter((p) => p.dataset.prefix === prefix);
+}
+
+// Syncs every suggest-control's query field to its own kind's source field
+// (design D1: inflections reads lemma, everything else reads text — no
+// shared default), skipping any control the operator has directly edited
+// (`dirty`) so an unrelated field edit never clobbers a deliberate override.
 function syncSuggestQueries(prefix) {
-  const value = defaultSuggestQuery(prefix);
   querySuggestControls(prefix).forEach((control) => {
     const input = control.querySelector('.suggest-query');
-    if (input && input.dataset.dirty !== '1') input.value = value;
+    if (!input || input.dataset.dirty === '1') return;
+    const panel = suggestControlPanel(control);
+    input.value = defaultSuggestQuery(prefix, panel ? panel.dataset.kind : null);
   });
 }
 
 // Called when a note is (re)loaded into a form — clears any prior dirty
-// state so the new note starts with every query back in sync.
+// state so the new note starts with every query and the lemma sync back in
+// sync, and collapses+empties every panel so no panel outlives the note it
+// was opened for (design D4).
 function resetSuggestQueries(prefix) {
   querySuggestControls(prefix).forEach((control) => {
     const input = control.querySelector('.suggest-query');
     if (input) delete input.dataset.dirty;
   });
+  const lemmaEl = document.getElementById(`${prefix}_lemma`);
+  if (lemmaEl) delete lemmaEl.dataset.dirty;
   syncSuggestQueries(prefix);
+  panelsForPrefix(prefix).forEach((panel) => {
+    closeSuggestPanel(panel);
+    panel.innerHTML = '';
+  });
 }
 
 async function updateSuggestCounts() {
@@ -1120,7 +1143,9 @@ document.querySelectorAll('.suggest-control').forEach((control) => {
   input.addEventListener('input', () => { input.dataset.dirty = '1'; });
   // Enter fires the panel whether it's closed (opens it) or already open
   // (re-fires every provider with the edited value) — no fire-on-keystroke,
-  // matching every other suggest input's manual-trigger convention.
+  // matching every other suggest input's manual-trigger convention. A
+  // different query is a different cache key and will miss anyway, so this
+  // does not force a cache bypass (design D5) — only the explicit ⟳ does.
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
@@ -1130,29 +1155,40 @@ document.querySelectorAll('.suggest-control').forEach((control) => {
 });
 updateSuggestCounts();
 
-// ── verb-only "From text" lemma-suggest button ───────────────────────────
-
-function deriveLemmaFromText(text) {
-  return text.trim().replace(/^å\s+/i, '');
-}
-
-function updateLemmaSuggestVisibility(prefix, selectId, customId) {
-  const pos = getPosValue(selectId, customId);
-  const btn = document.getElementById(`${prefix}_lemma_suggest_btn`);
-  if (btn) btn.style.display = pos === 'verb' ? '' : 'none';
-}
-
-function wireLemmaSuggestButton(prefix, textId, lemmaId) {
-  const btn = document.getElementById(`${prefix}_lemma_suggest_btn`);
-  if (!btn) return;
+// Panel-level "re-run every provider" control — re-opens/re-fires the panel
+// in place (it already stays marked `.open` throughout) with a forced cache
+// bypass, making the existing Enter-to-fire behaviour discoverable
+// (design D5).
+document.querySelectorAll('[data-suggest-rerun]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const lemmaEl = document.getElementById(lemmaId);
-    lemmaEl.value = deriveLemmaFromText(document.getElementById(textId).value);
-    lemmaEl.dispatchEvent(new Event('input', { bubbles: true }));
+    const panel = document.getElementById(btn.dataset.suggestRerun);
+    if (!panel) return;
+    btn.classList.add('spinning');
+    setTimeout(() => btn.classList.remove('spinning'), 650);
+    openSuggestPanel(panel, { forceRefresh: true });
   });
+});
+
+// ── reactive lemma: follows `text`'s first token until edited directly ──
+
+function syncLemmaFromText(prefix) {
+  const lemmaEl = document.getElementById(`${prefix}_lemma`);
+  if (!lemmaEl || lemmaEl.dataset.dirty === '1') return;
+  const textEl = document.getElementById(`${prefix}_text`);
+  lemmaEl.value = textEl ? (textEl.value.trim().split(/\s+/)[0] || '') : '';
 }
-wireLemmaSuggestButton('e', 'e_text', 'e_lemma');
-wireLemmaSuggestButton('c', 'c_text', 'c_lemma');
+
+function wireLemmaTextSync(prefix) {
+  const lemmaEl = document.getElementById(`${prefix}_lemma`);
+  const textEl = document.getElementById(`${prefix}_text`);
+  if (!lemmaEl || !textEl) return;
+  // A direct edit to lemma stops the sync for this note — same dirty-flag
+  // idiom the suggest-control queries already use.
+  lemmaEl.addEventListener('input', () => { lemmaEl.dataset.dirty = '1'; });
+  textEl.addEventListener('input', () => syncLemmaFromText(prefix));
+}
+wireLemmaTextSync('e');
+wireLemmaTextSync('c');
 
 function enrichEl(html) {
   const t = document.createElement('template');
@@ -1220,12 +1256,14 @@ function suggestFieldValue(prefix, field) {
   return el ? el.value.trim() : '';
 }
 
-// lemma-first-suggestions: type=word notes default every suggestion query
-// to `lemma`, falling back to `text` only when no lemma is set (non-`word`
-// types never have a lemma field to begin with, so this needs no separate
-// type check — an empty/hidden lemma already falls through).
-function defaultSuggestQuery(prefix) {
-  return suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
+// editor-session-hygiene design D1: each kind draws from exactly one named
+// field, with no fallback between fields — inflections reads `lemma`,
+// everything else reads `text`. TYPE_VISIBLE_FIELDS already guarantees
+// `lemma` is only present for type=word, so this needs no separate type
+// check: a non-word note's inflections panel isn't reachable with a stale
+// lemma to begin with.
+function defaultSuggestQuery(prefix, kind) {
+  return suggestFieldValue(prefix, kind === 'inflections' ? 'lemma' : 'text');
 }
 
 // The combined suggest control (toggle + live query) sitting next to a
@@ -1241,7 +1279,9 @@ function suggestControlInput(panelId) {
 
 function suggestControlQueryValue(panelId, prefix) {
   const input = suggestControlInput(panelId);
-  return input ? input.value.trim() : defaultSuggestQuery(prefix);
+  if (input) return input.value.trim();
+  const panel = document.getElementById(panelId);
+  return defaultSuggestQuery(prefix, panel ? panel.dataset.kind : null);
 }
 
 // stabbur's `source_lang` is deliberately language-agnostic (CLAUDE.md) and
@@ -1264,11 +1304,15 @@ function enrichRequestFields(kind, prefix, queryValue, lang) {
   return {};
 }
 
-async function enrichLookup(kind, provider, fields) {
+// `forceRefresh` is only ever sent when true — an operator-initiated
+// re-run (design D5) — never originated on an ordinary lookup, so the
+// proxy (routes/enrich.py) stays a pass-through rather than acquiring a
+// caching policy of its own.
+async function enrichLookup(kind, provider, fields, forceRefresh) {
   return api(`/api/enrich/${kind}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...fields, provider }),
+    body: JSON.stringify({ ...fields, provider, ...(forceRefresh ? { forceRefresh: true } : {}) }),
   });
 }
 
@@ -1346,7 +1390,7 @@ function renderManualLinkState(provider, url, prefix) {
 // copying `defaultQuery`, so it reads unambiguously as "something
 // different," not a copy. Retrying uses the override's value if revealed
 // and non-empty, otherwise falls back to `defaultQuery`.
-function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang) {
+function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang, initialForceRefresh) {
   const row = enrichEl(`
     <div class="provider-row">
       <div class="provider-head">
@@ -1372,10 +1416,10 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
     return (queryWrap.classList.contains('revealed') && override) ? override : defaultQuery;
   }
 
-  async function fire(queryValue) {
+  async function fire(queryValue, forceRefresh) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
     const fields = enrichRequestFields(kind, prefix, queryValue, lang);
-    const { status, body } = await enrichLookup(kind, provider, fields);
+    const { status, body } = await enrichLookup(kind, provider, fields, forceRefresh);
     const isManualLink = status === 200 && body && Array.isArray(body.candidates)
       && body.candidates.length === 0 && body.url && MANUAL_LINK_CAPTURE_ROUTES[provider];
     if (isManualLink) {
@@ -1409,11 +1453,11 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
   retryBtn.addEventListener('click', () => {
     retryBtn.classList.add('spinning');
     setTimeout(() => retryBtn.classList.remove('spinning'), 650);
-    fire(currentQuery());
+    fire(currentQuery(), true);
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
 
-  fire(defaultQuery);
+  fire(defaultQuery, initialForceRefresh);
   return row;
 }
 
@@ -1602,7 +1646,7 @@ function orderedParadigmEntries(pos, paradigm) {
 // suggestions): the shared query fires every provider on open, a per-
 // provider override stays hidden behind ✎ until needed. Candidates stay
 // read-only/copy-or-fill — never auto-filled (smia-enrichment-panel fix #1).
-function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
+function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialForceRefresh) {
   const wrap = enrichEl(`
     <div class="provider-row">
       <div class="provider-head">
@@ -1628,9 +1672,9 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
     return (queryWrap.classList.contains('revealed') && override) ? override : defaultQuery;
   }
 
-  async function fire(queryValue) {
+  async function fire(queryValue, forceRefresh) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
-    const { status, body } = await enrichLookup('inflections', provider, enrichRequestFields('inflections', prefix, queryValue));
+    const { status, body } = await enrichLookup('inflections', provider, enrichRequestFields('inflections', prefix, queryValue), forceRefresh);
     if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) {
       resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
       return;
@@ -1694,15 +1738,15 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery) {
   retryBtn.addEventListener('click', () => {
     retryBtn.classList.add('spinning');
     setTimeout(() => retryBtn.classList.remove('spinning'), 650);
-    fire(currentQuery());
+    fire(currentQuery(), true);
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') retryBtn.click(); });
 
-  fire(defaultQuery);
+  fire(defaultQuery, initialForceRefresh);
   return wrap;
 }
 
-function buildTranslationsSuggestPanel(prefix, providers, defaultQuery) {
+function buildTranslationsSuggestPanel(prefix, providers, defaultQuery, initialForceRefresh) {
   const wrap = enrichEl(`
     <div>
       <div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>
@@ -1715,7 +1759,7 @@ function buildTranslationsSuggestPanel(prefix, providers, defaultQuery) {
   `);
   const groupsEl = wrap.querySelector('.lang-groups');
 
-  function addLangGroup(lang) {
+  function addLangGroup(lang, forceRefresh) {
     lang = lang.trim().toLowerCase();
     if (!lang || groupsEl.querySelector(`[data-lang="${lang}"]`)) return;
     const group = enrichEl(`
@@ -1724,12 +1768,12 @@ function buildTranslationsSuggestPanel(prefix, providers, defaultQuery) {
       </div>
     `);
     providers.forEach((p) => {
-      group.appendChild(buildEnrichProviderRow('translations', p, prefix, defaultQuery, renderTranslationCandidate(prefix, lang), lang));
+      group.appendChild(buildEnrichProviderRow('translations', p, prefix, defaultQuery, renderTranslationCandidate(prefix, lang), lang, forceRefresh));
     });
     groupsEl.appendChild(group);
   }
 
-  SUGGEST_DEFAULT_LANGS.forEach(addLangGroup);
+  SUGGEST_DEFAULT_LANGS.forEach((lang) => addLangGroup(lang, initialForceRefresh));
 
   const addBtn = wrap.querySelector('button');
   const input = wrap.querySelector('.new-lang-input');
@@ -1798,7 +1842,13 @@ function buildSttProviderBlock(provider, prefix) {
   return wrap;
 }
 
-async function openSuggestPanel(panelEl) {
+// `forceRefresh` is only passed true from the panel-level ⟳ re-run control
+// (design D5) — an ordinary open (toggle click or Enter in the shared
+// query) leaves it false/undefined, so a first lookup is still free to
+// answer from smia's cache. Rebuilding the panel from scratch here (rather
+// than re-firing in place) keeps this the single path every provider's
+// initial fire goes through, forced or not.
+async function openSuggestPanel(panelEl, { forceRefresh = false } = {}) {
   const kind = panelEl.dataset.kind;
   const prefix = panelEl.dataset.prefix;
   const btn = document.querySelector(`[data-suggest-toggle="${panelEl.id}"]`);
@@ -1817,13 +1867,13 @@ async function openSuggestPanel(panelEl) {
 
   if (kind === 'translations') {
     const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
-    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers, defaultQuery));
+    panelEl.appendChild(buildTranslationsSuggestPanel(prefix, providers, defaultQuery, forceRefresh));
     return;
   }
   if (kind === 'inflections') {
     panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>copy or fill per field</span></div>`));
     const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
-    providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery)));
+    providers.forEach((p) => panelEl.appendChild(buildInflectionsProviderBlock(p, prefix, defaultQuery, forceRefresh)));
     return;
   }
   if (kind === 'stt') {
@@ -1835,7 +1885,7 @@ async function openSuggestPanel(panelEl) {
   panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>`));
   const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
   const renderCandidate = kind === 'ipa' ? renderIpaCandidate(prefix) : renderTtsCandidate(prefix);
-  providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate)));
+  providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate, undefined, forceRefresh)));
 }
 
 function closeSuggestPanel(panelEl) {

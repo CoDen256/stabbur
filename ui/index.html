@@ -122,9 +122,7 @@
                   <div class="suggest-panel" id="e_stt_suggest" data-kind="stt" data-prefix="e"></div>
                 </div>
                 <div class="field" id="e_lemma_field">
-                  <div class="field-label-row"><label for="e_lemma">Lemma</label>
-                    <button type="button" class="lemma-suggest-btn" id="e_lemma_suggest_btn" style="display:none" title="Derive from Text, å-prefix stripped">✦ From text</button>
-                  </div>
+                  <div class="field-label-row"><label for="e_lemma">Lemma</label></div>
                   <input id="e_lemma" type="text">
                 </div>
               </div>
@@ -169,6 +167,7 @@
                   <button type="button" class="suggest-toggle" data-suggest-toggle="e_ipa_suggest">✨ Suggest pronunciations<span class="count" id="e_ipa_suggest_count" style="display:none"></span></button>
                   <div class="suggest-control-divider"></div>
                   <input type="text" class="suggest-query" id="e_ipa_suggest_query" spellcheck="false">
+                  <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_ipa_suggest" title="Re-run every provider">⟳</button>
                 </div>
                 <div class="suggest-panel" id="e_ipa_suggest" data-kind="ipa" data-prefix="e"></div>
               </div>
@@ -180,6 +179,7 @@
                   <button type="button" class="suggest-toggle" data-suggest-toggle="e_translations_suggest">✨ Suggest translations<span class="count" id="e_translations_suggest_count" style="display:none"></span></button>
                   <div class="suggest-control-divider"></div>
                   <input type="text" class="suggest-query" id="e_translations_suggest_query" spellcheck="false">
+                  <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_translations_suggest" title="Re-run every provider">⟳</button>
                 </div>
                 <div class="suggest-panel" id="e_translations_suggest" data-kind="translations" data-prefix="e"></div>
               </div>
@@ -190,6 +190,7 @@
                   <button type="button" class="suggest-toggle" data-suggest-toggle="e_inflections_suggest">✨ Look up paradigm<span class="count" id="e_inflections_suggest_count" style="display:none"></span></button>
                   <div class="suggest-control-divider"></div>
                   <input type="text" class="suggest-query" id="e_inflections_suggest_query" spellcheck="false">
+                  <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_inflections_suggest" title="Re-run every provider">⟳</button>
                 </div>
                 <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
                 <div class="suggest-panel" id="e_inflections_suggest" data-kind="inflections" data-prefix="e"></div>
@@ -241,6 +242,7 @@
               <button type="button" class="suggest-toggle" data-suggest-toggle="e_tts_suggest">✨ Suggest<span class="count" id="e_tts_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="e_tts_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_tts_suggest" title="Re-run every provider">⟳</button>
             </div>
             <div class="suggest-panel" id="e_tts_suggest" data-kind="tts" data-prefix="e"></div>
             <div class="provider-row" style="margin-top:7px;">
@@ -343,9 +345,7 @@
           <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
           <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>
           <div class="field" id="c_lemma_field">
-            <div class="field-label-row"><label for="c_lemma">Lemma</label>
-              <button type="button" class="lemma-suggest-btn" id="c_lemma_suggest_btn" style="display:none" title="Derive from Text, å-prefix stripped">✦ From text</button>
-            </div>
+            <div class="field-label-row"><label for="c_lemma">Lemma</label></div>
             <input id="c_lemma" type="text">
           </div>
           <div class="field" id="c_transcription_field">
@@ -355,6 +355,7 @@
               <button type="button" class="suggest-toggle" data-suggest-toggle="c_ipa_suggest">✨ Suggest pronunciations<span class="count" id="c_ipa_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_ipa_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_ipa_suggest" title="Re-run every provider">⟳</button>
             </div>
             <div class="suggest-panel" id="c_ipa_suggest" data-kind="ipa" data-prefix="c"></div>
           </div>
@@ -366,6 +367,7 @@
               <button type="button" class="suggest-toggle" data-suggest-toggle="c_translations_suggest">✨ Suggest translations<span class="count" id="c_translations_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_translations_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_translations_suggest" title="Re-run every provider">⟳</button>
             </div>
             <div class="suggest-panel" id="c_translations_suggest" data-kind="translations" data-prefix="c"></div>
           </div>
@@ -376,6 +378,7 @@
               <button type="button" class="suggest-toggle" data-suggest-toggle="c_inflections_suggest">✨ Look up paradigm<span class="count" id="c_inflections_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_inflections_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_inflections_suggest" title="Re-run every provider">⟳</button>
             </div>
             <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
             <div class="suggest-panel" id="c_inflections_suggest" data-kind="inflections" data-prefix="c"></div>
@@ -392,6 +395,7 @@
               <button type="button" class="suggest-toggle" data-suggest-toggle="c_tts_suggest">✨ Suggest<span class="count" id="c_tts_suggest_count" style="display:none"></span></button>
               <div class="suggest-control-divider"></div>
               <input type="text" class="suggest-query" id="c_tts_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_tts_suggest" title="Re-run every provider">⟳</button>
             </div>
             <div class="suggest-panel" id="c_tts_suggest" data-kind="tts" data-prefix="c"></div>
             <div class="provider-row" style="margin-top:7px;">

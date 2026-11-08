@@ -26,6 +26,40 @@ def test_proxies_ipa_lookup_with_the_right_body_shape(client, monkeypatch):
     assert resp.get_json()["provider"] == "nst"
 
 
+def test_force_refresh_is_forwarded_when_the_client_sends_it(client, monkeypatch):
+    # editor-session-hygiene: the client's explicit re-run is relayed as-is —
+    # post_enrich forwards the whole JSON body, so forceRefresh needs no
+    # dedicated handling on stabbur's side, only a passing test confirming
+    # the pass-through hasn't acquired one.
+    seen = {}
+
+    def fake_post(path, json, timeout=20.0):
+        seen["json"] = json
+        return 200, {"provider": "nst", "candidates": []}
+
+    monkeypatch.setattr(smia_client, "post", fake_post)
+    client.post(
+        "/api/enrich/ipa",
+        json={"text": "hus", "lang": "nb", "provider": "nst", "forceRefresh": True},
+        headers=AUTH,
+    )
+    assert seen["json"] == {"text": "hus", "lang": "nb", "provider": "nst", "forceRefresh": True}
+
+
+def test_force_refresh_is_not_originated_by_the_proxy(client, monkeypatch):
+    seen = {}
+
+    def fake_post(path, json, timeout=20.0):
+        seen["json"] = json
+        return 200, {"provider": "nst", "candidates": []}
+
+    monkeypatch.setattr(smia_client, "post", fake_post)
+    client.post(
+        "/api/enrich/ipa", json={"text": "hus", "lang": "nb", "provider": "nst"}, headers=AUTH
+    )
+    assert "forceRefresh" not in seen["json"]
+
+
 def test_proxies_translations_lookup(client, monkeypatch):
     seen = {}
 
