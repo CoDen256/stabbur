@@ -155,6 +155,17 @@ function audioPill(audioBlob) {
     : `<span class="pill pill-err">— missing</span>`;
 }
 
+// design.md D9: origin is read-only in the editor (it's immutable once
+// set, so offering it as a form input would be a lie). For origin=import,
+// show the source name rather than the raw import_ref JSON.
+function originLabel(note) {
+  if (note.origin === 'import') {
+    const source = note.import_ref && note.import_ref.source;
+    return `imported from ${escapeHtml(source || '?')}`;
+  }
+  return escapeHtml(note.origin);
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -288,7 +299,7 @@ window.addEventListener('DOMContentLoaded', router);
 
 // ------------------------------------------------------------ notes list --
 
-const notesListState = { status: '', type: '', sortField: 'updated', sortDir: 'desc' };
+const notesListState = { status: '', type: '', origin: '', sortField: 'updated', sortDir: 'desc' };
 
 function wireChipGroup(containerId, onChange) {
   const group = document.getElementById(containerId);
@@ -303,6 +314,7 @@ function wireChipGroup(containerId, onChange) {
 
 wireChipGroup('notesStatusChips', (value) => { notesListState.status = value; renderNotesList(); });
 wireChipGroup('notesTypeChips', (value) => { notesListState.type = value; renderNotesList(); });
+wireChipGroup('notesOriginChips', (value) => { notesListState.origin = value; renderNotesList(); });
 
 function wireSortableHeaders(theadSelector, state, defaultDirs, onChange) {
   document.querySelectorAll(`${theadSelector} .sort-th`).forEach((th) => {
@@ -331,10 +343,11 @@ document.querySelector('#page-notes thead .sort-th[data-sort="updated"] .sort-ca
 async function renderNotesList() {
   const status = notesListState.status;
   const type = notesListState.type;
+  const origin = notesListState.origin;
   const sort = `${notesListState.sortField}_${notesListState.sortDir}`;
   const q = document.getElementById('notesSearch').value.trim();
 
-  const { status: httpStatus, body } = await api(`/api/notes/authoring${qs({ status, type, sort, q })}`);
+  const { status: httpStatus, body } = await api(`/api/notes/authoring${qs({ status, type, origin, sort, q })}`);
   const tbody = document.getElementById('notesTableBody');
   if (httpStatus !== 200) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="7">${escapeHtml(JSON.stringify(body))}</td></tr>`;
@@ -398,6 +411,7 @@ async function renderNoteDetail(id) {
   document.getElementById('noteDetailTitle').textContent = note.text;
   document.getElementById('noteDetailSub').innerHTML =
     `${escapeHtml(note.type)} · ${escapeHtml(note.pos || '—')} · ${statusPill(note.status)} · ` +
+    `${originLabel(note)} · ` +
     `created ${fmtDate(note.created_at)} · updated ${fmtDate(note.updated_at)}`;
 
   document.getElementById('e_text').value = note.text || '';
@@ -517,6 +531,7 @@ document.getElementById('noteSaveBtn').addEventListener('click', async () => {
     result.textContent = 'Saved.';
     document.getElementById('noteDetailSub').innerHTML =
       `${escapeHtml(body.type)} · ${escapeHtml(body.pos || '—')} · ${statusPill(body.status)} · ` +
+      `${originLabel(body)} · ` +
       `created ${fmtDate(body.created_at)} · updated ${fmtDate(body.updated_at)}`;
     updateNoteJsonView();
     updateNoAudioWarning();

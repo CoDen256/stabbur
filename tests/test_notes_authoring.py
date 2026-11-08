@@ -69,6 +69,102 @@ def test_deleting_draft_note_hard_deletes(client):
     assert get_after.status_code == 404
 
 
+def test_origin_derives_to_manual_when_omitted_and_no_capture(client):
+    resp = client.post(
+        "/api/notes", json={"type": "word", "source_lang": "no", "text": "hus"}, headers=AUTH
+    )
+    assert resp.status_code == 201
+    assert resp.get_json()["origin"] == "manual"
+
+
+def test_origin_derives_to_capture_when_capture_id_present(client):
+    resp = client.post(
+        "/api/notes",
+        json={"type": "word", "source_lang": "no", "text": "hus", "capture_id": "cap-1"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 201
+    assert resp.get_json()["origin"] == "capture"
+
+
+def test_import_ref_without_explicit_origin_is_rejected(client):
+    resp = client.post(
+        "/api/notes",
+        json={
+            "type": "word", "source_lang": "no", "text": "hus",
+            "import_ref": {"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_origin_import_without_import_ref_is_rejected(client):
+    resp = client.post(
+        "/api/notes",
+        json={"type": "word", "source_lang": "no", "text": "hus", "origin": "import"},
+        headers=AUTH,
+    )
+    assert resp.status_code == 400
+
+
+def test_origin_import_with_import_ref_is_accepted(client):
+    resp = client.post(
+        "/api/notes",
+        json={
+            "type": "word", "source_lang": "no", "text": "hus", "origin": "import",
+            "import_ref": {"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body["origin"] == "import"
+    assert body["import_ref"]["source"] == "ntnu"
+
+
+def test_patching_origin_to_a_different_value_is_rejected(client):
+    create = client.post(
+        "/api/notes", json={"type": "word", "source_lang": "no", "text": "hus"}, headers=AUTH
+    )
+    note_id = create.get_json()["id"]
+
+    patch = client.patch(f"/api/notes/{note_id}", json={"origin": "import"}, headers=AUTH)
+    assert patch.status_code == 400
+
+    get_after = client.get(f"/api/notes/{note_id}", headers=AUTH)
+    assert get_after.get_json()["origin"] == "manual"
+
+
+def test_patching_content_on_imported_note_succeeds_and_keeps_origin(client):
+    create = client.post(
+        "/api/notes",
+        json={
+            "type": "word", "source_lang": "no", "text": "hus", "origin": "import",
+            "import_ref": {"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+        },
+        headers=AUTH,
+    )
+    note_id = create.get_json()["id"]
+
+    patch = client.patch(f"/api/notes/{note_id}", json={"text": "huset"}, headers=AUTH)
+    assert patch.status_code == 200
+    assert patch.get_json()["text"] == "huset"
+    assert patch.get_json()["origin"] == "import"
+
+
+def test_patching_with_identical_origin_value_is_accepted(client):
+    create = client.post(
+        "/api/notes", json={"type": "word", "source_lang": "no", "text": "hus"}, headers=AUTH
+    )
+    note_id = create.get_json()["id"]
+
+    patch = client.patch(f"/api/notes/{note_id}", json={"origin": "manual", "text": "huset"}, headers=AUTH)
+    assert patch.status_code == 200
+    assert patch.get_json()["origin"] == "manual"
+    assert patch.get_json()["text"] == "huset"
+
+
 def test_full_hand_authoring_flow_end_to_end(client):
     # 1. Create a draft note.
     create = client.post(

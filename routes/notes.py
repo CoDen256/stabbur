@@ -12,7 +12,7 @@ from flask import jsonify, request
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from db.models import NOTE_STATUSES, NOTE_TYPES, GrammarRule, Note
+from db.models import NOTE_ORIGINS, NOTE_STATUSES, NOTE_TYPES, GrammarRule, Note
 from db.session import session_scope
 
 AUTHORING_SORTS = {
@@ -81,6 +81,8 @@ def _serialize_authoring(note: Note) -> dict:
     data["seq"] = note.seq
     data["updated_at"] = _iso(note.updated_at)
     data["deleted_at"] = _iso(note.deleted_at)
+    data["origin"] = note.origin
+    data["import_ref"] = note.import_ref
     return data
 
 
@@ -92,6 +94,26 @@ def _validate_type_and_status(body: dict, existing_type: str | None, existing_st
     if status is not None and status not in NOTE_STATUSES:
         return f"status must be one of {NOTE_STATUSES}"
     return None
+
+
+def _derive_origin(body: dict) -> tuple[str | None, str | None]:
+    """design.md D6: explicit `origin` wins; omitted derives `capture` if
+    `capture_id` is present, else `manual`. `import` is never derived — an
+    `import_ref` with no explicit `origin`, or `origin=import` with no
+    `import_ref`, is a 400. Returns (origin, error)."""
+    origin = body.get("origin")
+    if origin is not None and origin not in NOTE_ORIGINS:
+        return None, f"origin must be one of {NOTE_ORIGINS}"
+
+    if origin is None:
+        if body.get("import_ref") is not None:
+            return None, "import_ref requires an explicit origin=import"
+        origin = "capture" if body.get("capture_id") else "manual"
+
+    if origin == "import" and body.get("import_ref") is None:
+        return None, "origin=import requires import_ref"
+
+    return origin, None
 
 
 def register_notes_routes(app):
@@ -109,12 +131,18 @@ def register_notes_routes(app):
         if error:
             return jsonify({"error": error}), 400
 
+        origin, error = _derive_origin(body)
+        if error:
+            return jsonify({"error": error}), 400
+
         note = Note(
             type=body["type"],
             source_lang=body["source_lang"],
             text=body["text"],
             status=body.get("status", "draft"),
             capture_id=body.get("capture_id"),
+            origin=origin,
+            import_ref=body.get("import_ref"),
             translations=body.get("translations", []),
             transcription=body.get("transcription"),
             pos=body.get("pos"),
@@ -157,6 +185,15 @@ def register_notes_routes(app):
             error = _validate_type_and_status(body, note.type, note.status)
             if error:
                 return jsonify({"error": error}), 400
+
+            # design.md D5: origin/import_ref are immutable — rewriting
+            # provenance falsifies a record, it doesn't correct one. The
+            # identical value is accepted so a GET -> PATCH round-trip of
+            # the full note object isn't broken by this rule.
+            if "origin" in body and body["origin"] != note.origin:
+                return jsonify({"error": "origin is immutable once set"}), 400
+            if "import_ref" in body and body["import_ref"] != note.import_ref:
+                return jsonify({"error": "import_ref is immutable once set"}), 400
 
             for field in (
                 "type",
@@ -245,6 +282,10 @@ def register_notes_routes(app):
         if type_ is not None and type_ not in NOTE_TYPES:
             return jsonify({"error": f"type must be one of {NOTE_TYPES}"}), 400
 
+        origin = request.args.get("origin")
+        if origin is not None and origin not in NOTE_ORIGINS:
+            return jsonify({"error": f"origin must be one of {NOTE_ORIGINS}"}), 400
+
         sort = request.args.get("sort", "updated_desc")
         if sort not in AUTHORING_SORTS:
             return jsonify({"error": f"sort must be one of {sorted(AUTHORING_SORTS)}"}), 400
@@ -254,6 +295,8 @@ def register_notes_routes(app):
             stmt = stmt.where(Note.status == status)
         if type_:
             stmt = stmt.where(Note.type == type_)
+        if origin:
+            stmt = stmt.where(Note.origin == origin)
         pos = request.args.get("pos")
         if pos:
             stmt = stmt.where(Note.pos == pos)
@@ -389,4 +432,12 @@ def _integrity_error_message(exc: IntegrityError) -> str:
         return f"type must be one of {NOTE_TYPES}"
     if "ck_notes_status" in str(exc.orig):
         return f"status must be one of {NOTE_STATUSES}"
+    if "ck_notes_origin" in str(exc.orig):
+        return f"origin must be one of {NOTE_ORIGINS}"
+    if "ck_notes_capture_origin_requires_capture_id" in str(exc.orig):
+        return "origin=capture requires capture_id"
+    if "ck_notes_import_origin_requires_import_ref" in str(exc.orig):
+        return "origin=import requires import_ref"
+    if "ck_notes_manual_origin_has_no_provenance" in str(exc.orig):
+        return "origin=manual requires both capture_id and import_ref to be null"
     return "invalid note data"

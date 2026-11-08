@@ -100,6 +100,31 @@ def test_response_shape_matches_documented_contract_exactly(client):
         assert set(note.keys()) == READ_API_FIELDS
 
 
+def test_public_response_excludes_origin_and_import_ref(client):
+    _create(client)
+
+    resp = client.get("/api/notes?source_lang=no", headers=AUTH)
+    notes = resp.get_json()
+    assert len(notes) >= 1
+    for note in notes:
+        assert "origin" not in note
+        assert "import_ref" not in note
+
+
+def test_origin_query_parameter_has_no_effect_on_public_api(client):
+    manual = _create(client, text="hus")
+    imported = _create(
+        client, text="katt", origin="import",
+        import_ref={"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+    )
+
+    without_filter = {n["id"] for n in client.get("/api/notes?source_lang=no", headers=AUTH).get_json()}
+    with_filter = {n["id"] for n in client.get("/api/notes?source_lang=no&origin=manual", headers=AUTH).get_json()}
+    assert without_filter == with_filter
+    assert manual["id"] in without_filter
+    assert imported["id"] in without_filter
+
+
 def test_no_acknowledgment_endpoint_exists(client):
     """D44/4.2: no mechanism to report back what was pulled."""
     for path in ("/api/notes/ack", "/api/notes/acknowledge", "/api/pulls"):

@@ -77,3 +77,39 @@ def test_invalid_status_type_sort_are_rejected(client):
     assert client.get("/api/notes/authoring?status=bogus", headers=AUTH).status_code == 400
     assert client.get("/api/notes/authoring?type=bogus", headers=AUTH).status_code == 400
     assert client.get("/api/notes/authoring?sort=bogus", headers=AUTH).status_code == 400
+
+
+def test_filters_by_origin_alone(client):
+    _create(client, text="hus")  # manual
+    _create(client, text="bil", capture_id="cap-1")  # capture
+    _create(
+        client, text="katt", origin="import",
+        import_ref={"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+    )
+
+    resp = client.get("/api/notes/authoring?origin=manual", headers=AUTH)
+    assert {n["text"] for n in resp.get_json()} == {"hus"}
+
+    resp = client.get("/api/notes/authoring?origin=import", headers=AUTH)
+    assert {n["text"] for n in resp.get_json()} == {"katt"}
+
+
+def test_filters_by_origin_combined_with_status(client):
+    _create(client, text="hus", status="ready")  # manual
+    _create(client, text="bil", status="draft")  # manual
+
+    resp = client.get("/api/notes/authoring?origin=manual&status=ready", headers=AUTH)
+    assert {n["text"] for n in resp.get_json()} == {"hus"}
+
+
+def test_invalid_origin_filter_is_rejected(client):
+    assert client.get("/api/notes/authoring?origin=bogus", headers=AUTH).status_code == 400
+
+
+def test_no_origin_filter_returns_every_origin(client):
+    _create(client, text="hus")
+    _create(client, text="bil", capture_id="cap-1")
+
+    resp = client.get("/api/notes/authoring", headers=AUTH)
+    texts = {n["text"] for n in resp.get_json()}
+    assert {"hus", "bil"} <= texts

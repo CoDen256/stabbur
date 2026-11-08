@@ -39,6 +39,7 @@ def test_create_note_with_each_type_and_inflection_shape(type_, pos, inflections
             pos=pos,
             inflections=inflections,
             translations=[{"lang": "en", "text": "house"}],
+            origin="manual",
         )
         db.add(note)
         db.commit()
@@ -51,7 +52,7 @@ def test_listening_and_pronunciation_types():
     Session = get_sessionmaker()
     with Session() as db:
         for type_ in ("listening", "pronunciation"):
-            note = Note(type=type_, source_lang="no", text="Han gikk til butikken.")
+            note = Note(type=type_, source_lang="no", text="Han gikk til butikken.", origin="manual")
             db.add(note)
         db.commit()
 
@@ -59,7 +60,7 @@ def test_listening_and_pronunciation_types():
 def test_grammar_type_requires_grammar_rule_id():
     Session = get_sessionmaker()
     with Session() as db:
-        note = Note(type="grammar", source_lang="no", text="Oversett: I am happy")
+        note = Note(type="grammar", source_lang="no", text="Oversett: I am happy", origin="manual")
         db.add(note)
         with pytest.raises(IntegrityError):
             db.commit()
@@ -71,7 +72,10 @@ def test_grammar_type_with_rule_id_succeeds():
         rule = GrammarRule(title="Presens", html="<p>Norwegian present tense...</p>")
         db.add(rule)
         db.flush()
-        note = Note(type="grammar", source_lang="no", text="Oversett: I am happy", grammar_rule_id=rule.id)
+        note = Note(
+            type="grammar", source_lang="no", text="Oversett: I am happy",
+            grammar_rule_id=rule.id, origin="manual",
+        )
         db.add(note)
         db.commit()
         db.refresh(note)
@@ -81,7 +85,7 @@ def test_grammar_type_with_rule_id_succeeds():
 def test_invalid_status_is_rejected():
     Session = get_sessionmaker()
     with Session() as db:
-        note = Note(type="word", source_lang="no", text="hus", status="published")
+        note = Note(type="word", source_lang="no", text="hus", status="published", origin="manual")
         db.add(note)
         with pytest.raises(IntegrityError):
             db.commit()
@@ -90,7 +94,7 @@ def test_invalid_status_is_rejected():
 def test_ready_status_allows_null_audio_blob():
     Session = get_sessionmaker()
     with Session() as db:
-        note = Note(type="word", source_lang="no", text="hus", status="ready", audio_blob=None)
+        note = Note(type="word", source_lang="no", text="hus", status="ready", audio_blob=None, origin="manual")
         db.add(note)
         db.commit()
         db.refresh(note)
@@ -101,13 +105,98 @@ def test_ready_status_allows_null_audio_blob():
 def test_deleting_draft_note_removes_the_row():
     Session = get_sessionmaker()
     with Session() as db:
-        note = Note(type="word", source_lang="no", text="hus", status="draft")
+        note = Note(type="word", source_lang="no", text="hus", status="draft", origin="manual")
         db.add(note)
         db.commit()
         note_id = note.id
         db.delete(note)
         db.commit()
         assert db.get(Note, note_id) is None
+
+
+def test_manual_origin_with_no_provenance_is_accepted():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="manual")
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+        assert note.origin == "manual"
+
+
+def test_capture_origin_with_capture_id_is_accepted():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="capture", capture_id="cap-1")
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+        assert note.origin == "capture"
+
+
+def test_import_origin_with_import_ref_is_accepted():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(
+            type="word",
+            source_lang="no",
+            text="hus",
+            origin="import",
+            import_ref={"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+        )
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+        assert note.origin == "import"
+        assert note.import_ref["source"] == "ntnu"
+
+
+def test_invalid_origin_is_rejected():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="bogus")
+        db.add(note)
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_capture_origin_without_capture_id_is_rejected():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="capture")
+        db.add(note)
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_import_origin_without_import_ref_is_rejected():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="import")
+        db.add(note)
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_manual_origin_with_capture_id_is_rejected():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(type="word", source_lang="no", text="hus", origin="manual", capture_id="cap-1")
+        db.add(note)
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_manual_origin_with_import_ref_is_rejected():
+    Session = get_sessionmaker()
+    with Session() as db:
+        note = Note(
+            type="word", source_lang="no", text="hus", origin="manual",
+            import_ref={"source": "ntnu", "source_note_id": "1", "run_id": "r1"},
+        )
+        db.add(note)
+        with pytest.raises(IntegrityError):
+            db.commit()
 
 
 def test_deleting_ready_note_does_not_free_its_id():
@@ -117,7 +206,7 @@ def test_deleting_ready_note_does_not_free_its_id():
     Questions)."""
     Session = get_sessionmaker()
     with Session() as db:
-        note = Note(type="word", source_lang="no", text="hus", status="ready")
+        note = Note(type="word", source_lang="no", text="hus", status="ready", origin="manual")
         db.add(note)
         db.commit()
         note_id = note.id

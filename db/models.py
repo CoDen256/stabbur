@@ -7,9 +7,9 @@ mjolnir/hub's tables, and carries nothing deck-, id-, or occurrence-shaped.
 live here), not a cross-service one.
 
 Every column here traces back to `tun/docs/03-data-model.md`'s `note`
-schema exactly — no speculative columns, no narrowing either. Two additions
-beyond that sketch, both flagged as open questions in this change's
-design.md and resolved during implementation (recorded there, task 4.4/5.4):
+schema exactly — no speculative columns, no narrowing either. Four additions
+beyond that sketch, flagged as open questions in their originating change's
+design.md and resolved during implementation:
 
 - `updated_at`: cheap to add now, awkward to retrofit later if a future
   consumer wants to filter on "changed since" rather than only "created
@@ -18,6 +18,12 @@ design.md and resolved during implementation (recorded there, task 4.4/5.4):
   permanence rule. A `draft` note's row is hard-deleted; a `ready` note
   (therefore possibly already pulled) gets `deleted_at` set instead — its
   id stays resolvable, excluded from the read API's listing.
+- `origin` (note-origin-provenance): every note positively asserts where
+  it came from (`manual`/`capture`/`import`) instead of leaving provenance
+  to be inferred from `capture_id`'s nullness.
+- `import_ref` (note-origin-provenance): a reference, not a foreign key,
+  to the external source an `origin=import` note was imported from — the
+  import tool's candidate store is a local, non-service artifact.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 NOTE_TYPES = ("word", "expression", "listening", "pronunciation", "grammar")
 NOTE_STATUSES = ("draft", "ready")
+NOTE_ORIGINS = ("manual", "capture", "import")
 
 
 class Base(DeclarativeBase):
@@ -56,6 +63,17 @@ class Note(Base):
         CheckConstraint(
             "type != 'grammar' OR grammar_rule_id IS NOT NULL", name="ck_notes_grammar_requires_rule"
         ),
+        CheckConstraint(f"origin IN {NOTE_ORIGINS!r}", name="ck_notes_origin"),
+        CheckConstraint(
+            "origin <> 'capture' OR capture_id IS NOT NULL", name="ck_notes_capture_origin_requires_capture_id"
+        ),
+        CheckConstraint(
+            "origin <> 'import' OR import_ref IS NOT NULL", name="ck_notes_import_origin_requires_import_ref"
+        ),
+        CheckConstraint(
+            "origin <> 'manual' OR (capture_id IS NULL AND import_ref IS NULL)",
+            name="ck_notes_manual_origin_has_no_provenance",
+        ),
     )
 
     # A random id, not content-derived and not sequential — permanent even
@@ -73,6 +91,18 @@ class Note(Base):
     # Provenance; null for hand-authored entries. No FK — P7's `captures`
     # table does not exist yet in this change.
     capture_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Positively asserts where a note came from — see NOTE_ORIGINS. Never
+    # null; "capture"/"import" is backed by capture_id/import_ref via the
+    # check constraints above, and immutable once set (routes/notes.py).
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    # A reference (source/source_note_id/run_id), not a foreign key —
+    # the import tool's candidate store is a local, non-service artifact
+    # that stabbur must not depend on (design.md D3, D42/D43).
+    # none_as_null=True: without it, SQLAlchemy encodes a Python `None`
+    # here as the JSON scalar `null` rather than a SQL NULL, which silently
+    # defeats ck_notes_manual_origin_has_no_provenance's `IS NULL` check.
+    import_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     type: Mapped[str] = mapped_column(Text, nullable=False)
     source_lang: Mapped[str] = mapped_column(Text, nullable=False)
