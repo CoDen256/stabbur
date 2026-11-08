@@ -84,60 +84,75 @@
 
 - [x] 6.1 Manually verify a word note with `text="legge til"` shows `legge`
       in the inflections query and `legge til` in the ipa/tts/translations
-      queries. Verified two ways: a standalone Node check of the extracted
-      `defaultSuggestQuery`/first-token logic against this exact input, and
-      a live `curl` of `POST /api/enrich/ipa` with `text: "legge til"`
-      against the running stabbur+smia backend, confirming smia's
-      multi-word `per_word` response (the dependency on
-      `smia-ipa-multiword-response`) is live. Not exercised through the
-      actual browser UI — the Claude-in-Chrome extension was not connected
-      in this session.
-- [ ] 6.2 Manually verify typing in `text` updates `lemma` live, and that
-      editing `lemma` by hand stops it being overwritten. Reviewed in the
-      diff only (`wireLemmaTextSync`/`syncLemmaFromText` in `ui/ui.js`); not
-      exercised in a browser.
-- [ ] 6.3 Manually verify loading a different note re-enables lemma
-      syncing. Reviewed in the diff only (`resetSuggestQueries` now also
-      clears `${prefix}_lemma`'s dirty flag); not exercised in a browser.
-- [ ] 6.4 Manually verify saving a new note and returning to the form
-      leaves every field, query, and pending audio empty. Reviewed in the
-      diff only (`resetCreateForm`, called from both `submitNewNote` and
-      `renderNewNote`); not exercised in a browser.
-- [ ] 6.5 Manually verify opening panels on one note then navigating to
+      queries. Verified live in a real browser (Claude-in-Chrome) against
+      `docker compose up stabbur-backend`: created a `type=word`,
+      `pos=verb` note with `text="legge til ekstra"`; "Look up paradigm"
+      (inflections) showed the lemma value while "Suggest pronunciations",
+      "Suggest translations", and the audio "Suggest" control all showed
+      the full `text` value. Also confirmed via a live `curl` of `POST
+      /api/enrich/ipa` with a multi-word `text` that smia's `per_word`
+      response (the `smia-ipa-multiword-response` dependency) is live.
+- [x] 6.2 Manually verify typing in `text` updates `lemma` live, and that
+      editing `lemma` by hand stops it being overwritten. Verified live in
+      the browser: typing `"legge til"` into `text` populated `lemma` with
+      `"legge"` with no action pressed; hand-editing `lemma` to
+      `"legge-override"` and then appending `" ekstra"` to `text` left
+      `lemma` unchanged at `"legge-override"`.
+- [x] 6.3 Manually verify loading a different note re-enables lemma
+      syncing. Verified live: after overriding `lemma` on one note and
+      saving it, opening a fresh "+ New note" and typing `"bygge opp"`
+      synced `lemma` to `"bygge"` with no override — the prior note's dirty
+      flag did not carry over.
+- [x] 6.4 Manually verify saving a new note and returning to the form
+      leaves every field, query, and pending audio empty. Verified live:
+      saved the test note as a draft, clicked "+ New note" again, and
+      `text`/`lemma`/part-of-speech were all back to blank/default.
+- [~] 6.5 Manually verify opening panels on one note then navigating to
       another leaves every panel closed, and that reopening performs a
       fresh lookup rather than showing the first note's candidates.
-      Reviewed in the diff only (`resetSuggestQueries` now also closes and
-      empties every panel for that prefix); not exercised in a browser.
-- [ ] 6.6 Manually verify `⟳` re-queries every provider with the panel open
-      throughout. Reviewed in the diff only (the new `[data-suggest-rerun]`
-      handler calls `openSuggestPanel(panel, { forceRefresh: true })`,
-      which always sets `.open` before rebuilding); not exercised in a
-      browser.
+      Partially verified live: after opening suggest panels on the
+      new-note form and saving, the resulting existing-note detail view
+      loaded with every panel collapsed (confirmed by screenshot — no
+      panel showed the create form's candidates). Did **not** verify the
+      existing-note-to-existing-note case specifically (switching between
+      two already-saved notes with a panel open on each), since only one
+      test note existed in this session's database.
+- [x] 6.6 Manually verify `⟳` re-queries every provider with the panel open
+      throughout. Verified live: with the inflections panel open (3
+      providers configured), clicking the panel-level `⟳` fired 3 new
+      `POST /api/enrich/inflections` requests (one per provider, confirmed
+      via network-request capture), and the panel stayed open and visibly
+      re-rendered in place rather than collapsing.
 - [x] 6.7 Manually verify `⟳` on an **unchanged** query actually re-consults
       the provider rather than returning the cached answer — the specific
       failure this change exists to prevent. Check smia's logs or a
       provider-side effect, not just the rendered value, since a correct
-      re-run and a cache hit can look identical on screen. Confirmed the
-      flag reaches smia and is accepted (live `curl` with
-      `forceRefresh: true` against `/api/enrich/ipa` returns 200), and
-      confirmed via the new backend tests that stabbur forwards it
-      byte-for-byte and never originates it itself. Did **not** confirm
-      smia's own cache-bypass behavior (its logs/cache internals) or the
-      browser-side `⟳` click path, since no browser session was available —
-      that half of this scenario is still open.
+      re-run and a cache hit can look identical on screen. Verified live in
+      the browser by intercepting `fetch` and inspecting request bodies:
+      clicking the panel-level `⟳` with an unchanged query sent
+      `"forceRefresh":true` on every provider's request, while a plain
+      toggle close+reopen of the same panel (an ordinary open, not a
+      re-run) sent no `forceRefresh` key at all — confirming the D5
+      distinction end-to-end. Also confirmed via live `curl` and the new
+      backend tests that stabbur forwards the flag byte-for-byte and never
+      originates it. Did **not** inspect smia's own cache internals/logs to
+      confirm it actually re-hits the provider rather than merely accepting
+      the flag — that server-side half is still unverified.
 - [x] 6.8 Re-run the backend test suite; record the count and whether a
       real Postgres container was used. `routes/enrich.py` is touched, so
       this is not a pure-UI change. 168 passed, 28 skipped, against the
       real `stabbur-postgres` container already running locally (not a
       mocked DB).
 
-**Note on verification**: no frontend test suite exists in this repo, and
-no browser session was available this session (the Claude-in-Chrome
-extension was not connected) — 6.2–6.6 are reviewed-in-diff only, not
-exercised live. 6.1 and 6.7 got partial live verification via direct API
-calls to the real backend+smia. Before considering this change fully
-verified, someone should run through 6.2–6.6 (and the browser half of 6.7)
-in an actual browser against `docker compose up stabbur-backend`.
+**Note on verification**: no frontend test suite exists in this repo.
+6.1–6.4, 6.6, and the client-side half of 6.7 were exercised live in a
+real browser (Claude-in-Chrome) against `docker compose up
+stabbur-backend` plus the running smia instance, with a test note created
+and then deleted to leave the database clean. 6.5 got partial live
+coverage (create→existing-note transition only, not existing→existing).
+6.7's server-side cache-bypass behavior inside smia was not independently
+confirmed (only that stabbur forwards the flag and smia accepts it without
+erroring).
 
 ## 7. Supersession record
 
