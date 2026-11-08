@@ -66,7 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="print per-stage run state")
 
     args = parser.parse_args(argv)
-    conn = store.connect(args.db)
+    # `review` serves a Flask dev server, which can dispatch a request on a
+    # different thread than the one that opened the connection — the rest
+    # of the pipeline runs single-threaded and keeps sqlite3's default
+    # thread check (task 2.1/2.2).
+    conn = store.connect(args.db, check_same_thread=(args.command != "review"))
 
     if args.command == "status":
         print_status(conn)

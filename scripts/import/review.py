@@ -163,7 +163,10 @@ def run(conn: sqlite3.Connection, run_id: int, host: str = "127.0.0.1", port: in
     print(f"review: {total_queue} in queue, {reviewed_before} already reviewed")
     print(f"review: open http://{host}:{port}")
     try:
-        app.run(host=host, port=port)
+        # threaded=False: one request at a time, so the single sqlite3
+        # connection this module shares across routes is never touched
+        # concurrently even with check_same_thread relaxed for it.
+        app.run(host=host, port=port, threaded=False)
     except KeyboardInterrupt:
         pass
 

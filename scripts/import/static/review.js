@@ -266,23 +266,23 @@
 
     gestureHappened = true;
     switch (event.key.toLowerCase()) {
-      case "k":
-        event.preventDefault();
-        decide("reject");
-        break;
-      case "n":
+      case "r":
         event.preventDefault();
         decide("accept");
         break;
-      case "r":
+      case "x":
+        event.preventDefault();
+        decide("reject");
+        break;
+      case "l":
         event.preventDefault();
         replay();
         break;
-      case "u":
+      case "v":
         event.preventDefault();
         undo();
         break;
-      case "s":
+      case "e":
         event.preventDefault();
         skip();
         break;

@@ -209,9 +209,9 @@ def create_app(conn: sqlite3.Connection) -> Flask:
 
 
 def main() -> None:
-    conn = store.connect()
+    conn = store.connect(check_same_thread=False)
     app = create_app(conn)
-    app.run(host="127.0.0.1", port=5057)
+    app.run(host="127.0.0.1", port=5057, threaded=False)
 
 
 if __name__ == "__main__":

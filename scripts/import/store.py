@@ -159,10 +159,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def connect(db_path: Path | str = DEFAULT_DB_PATH, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    """`check_same_thread=False` is for `web.py` only (task 2.1): Flask's
+    dev server can service a request on a different thread than the one
+    that opened the connection, and this tool is a single operator
+    clicking through one request at a time, never concurrent writers, so
+    the safety `check_same_thread` normally buys isn't needed here."""
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
