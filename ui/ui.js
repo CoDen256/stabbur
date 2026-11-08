@@ -187,6 +187,7 @@ function addTranslationRow(containerId, lang, text, onChange) {
   row.querySelector('.t-remove').addEventListener('click', () => { row.remove(); if (onChange) onChange(); });
   row.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', () => { if (onChange) onChange(); }));
   container.appendChild(row);
+  return row;
 }
 
 function renderTranslationRows(containerId, translations, onChange) {
@@ -1232,6 +1233,19 @@ function syncLemmaFromText(prefix) {
   lemmaEl.value = textEl ? deriveLemmaGuess(textEl.value) : '';
 }
 
+// Examples search for the whole phrase, particle/preposition included
+// ("legge til" as a unit reads better in a corpus than bare "legge") — only
+// a leading article or infinitive marker is noise worth stripping here, so
+// this reuses just the prefix half of the lemma guess, never the suffix
+// half.
+function deriveExamplesQuery(text) {
+  const tokens = (text || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return tokens[0] || '';
+  let start = 0;
+  while (start < tokens.length - 1 && LEMMA_GUESS_PREFIX_STOPWORDS.has(tokens[start].toLowerCase())) start += 1;
+  return tokens.slice(start).join(' ');
+}
+
 function wireLemmaTextSync(prefix) {
   const lemmaEl = document.getElementById(`${prefix}_lemma`);
   const textEl = document.getElementById(`${prefix}_text`);
@@ -1317,7 +1331,9 @@ function suggestFieldValue(prefix, field) {
 // check: a non-word note's inflections panel isn't reachable with a stale
 // lemma to begin with.
 function defaultSuggestQuery(prefix, kind) {
-  return suggestFieldValue(prefix, kind === 'inflections' ? 'lemma' : 'text');
+  if (kind === 'inflections') return suggestFieldValue(prefix, 'lemma');
+  if (kind === 'examples') return deriveExamplesQuery(suggestFieldValue(prefix, 'text'));
+  return suggestFieldValue(prefix, 'text');
 }
 
 // The combined suggest control (toggle + live query) sitting next to a
@@ -2331,6 +2347,7 @@ async function loadTriageQueue() {
   triageQueue = status === 200 ? body : [];
   triageIndex = 0;
   triageBeltTrackTotal = -1; // force the notch track to rebuild for the new queue
+  triageHistoryStack = []; // indices from the previous queue no longer mean anything
   refreshTriageRailBadge();
   updateTriageBelt();
   await showTriageNote();
@@ -2483,6 +2500,7 @@ async function showTriageNote() {
     const guess = deriveLemmaGuess(document.getElementById('t_text').value);
     if (guess) {
       lemmaEl.value = guess;
+      flashPrefilled(lemmaEl);
       markTriageFieldProvenance('lemma', 'derived from text');
     }
   }
@@ -2508,6 +2526,10 @@ document.getElementById('t_type').addEventListener('change', updateTriageFieldVi
 wirePosCustomToggle('t_pos_select', 't_pos_custom', () => {
   const pos = getPosValue('t_pos_select', 't_pos_custom');
   updateTriageInflectionFields(pos, currentTriageNote && currentTriageNote.pos === pos ? currentTriageNote.inflections : null);
+  // A changed PoS reshapes the inflection fields to a fresh, empty set —
+  // "redo the inflections" means re-running the walk right away rather than
+  // leaving the operator to notice and press prefill again.
+  prefillTriageInflections();
 });
 document.getElementById('t_add_translation').addEventListener('click', () => {
   addTranslationRow('t_translations_list', '', '', null);
@@ -2553,6 +2575,13 @@ function advanceTriageIndex() {
   showTriageNote();
 }
 
+// A small undo stack for "go to previous" (task: operator safety net for an
+// accidental accept/skip/send-to-back). Delete is deliberately excluded —
+// it already has its own `confirm()` guard, and undoing a hard delete isn't
+// possible anyway. Reset whenever the queue itself is reloaded (origin
+// switch), since indices from a previous queue no longer mean anything.
+let triageHistoryStack = [];
+
 document.getElementById('triageAcceptBtn').addEventListener('click', async () => {
   if (!currentTriageNote) return;
   const payload = readTriageForm();
@@ -2562,7 +2591,11 @@ document.getElementById('triageAcceptBtn').addEventListener('click', async () =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (status === 200) { advanceTriageIndex(); refreshTriageRailBadge(); }
+  if (status === 200) {
+    triageHistoryStack.push({ type: 'accept', index: triageIndex, noteId: currentTriageNote.id });
+    advanceTriageIndex();
+    refreshTriageRailBadge();
+  }
 });
 
 document.getElementById('triageSendBackBtn').addEventListener('click', async () => {
@@ -2570,6 +2603,7 @@ document.getElementById('triageSendBackBtn').addEventListener('click', async () 
   const saved = await saveTriageEdits();
   if (!saved) return;
   triageDeferredCount += 1;
+  triageHistoryStack.push({ type: 'sendback', index: triageIndex, noteId: currentTriageNote.id });
   // design D3: deferral is just a save, so the note sorts last under
   // `updated_asc` — moved to the end of the in-memory queue too, so it
   // reads as deferred within this pass, not only after a reload.
@@ -2581,6 +2615,7 @@ document.getElementById('triageSendBackBtn').addEventListener('click', async () 
 
 document.getElementById('triageSkipBtn').addEventListener('click', () => {
   if (!currentTriageNote) return;
+  triageHistoryStack.push({ type: 'skip', index: triageIndex });
   advanceTriageIndex();
 });
 
@@ -2591,7 +2626,44 @@ document.getElementById('triageDeleteBtn').addEventListener('click', async () =>
   if (status === 204 || status === 200) { advanceTriageIndex(); refreshTriageRailBadge(); }
 });
 
+// Reverses the most recent accept/skip/send-to-back. Accept and skip never
+// touch `triageQueue` (they only move the pointer forward), so undoing them
+// is just moving the pointer back — except accept also PATCHed `status` to
+// `ready`, which has to be reverted on the backend too. Send-to-back moved
+// the note to the end of the array without moving the pointer, so undoing
+// it moves the note back rather than touching the pointer.
+async function goToPreviousTriageNote() {
+  const entry = triageHistoryStack.pop();
+  if (!entry) { enrichToast('Nothing to go back to'); return; }
+
+  if (entry.type === 'sendback') {
+    const idx = triageQueue.findIndex((n) => n.id === entry.noteId);
+    if (idx !== -1) {
+      const [note] = triageQueue.splice(idx, 1);
+      triageQueue.splice(entry.index, 0, note);
+    }
+    triageDeferredCount = Math.max(0, triageDeferredCount - 1);
+  } else if (entry.type === 'accept') {
+    const { status, body } = await api(`/api/notes/${entry.noteId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'draft' }),
+    });
+    if (status === 200) {
+      triageQueue[entry.index] = body;
+      refreshTriageRailBadge();
+    }
+    triageIndex = entry.index;
+  } else {
+    triageIndex = entry.index;
+  }
+  updateTriageBelt();
+  await showTriageNote();
+}
+
+document.getElementById('triagePreviousBtn').addEventListener('click', goToPreviousTriageNote);
 document.getElementById('triagePrefillBtn').addEventListener('click', () => runTriagePrefill());
+document.getElementById('triagePrefillBtnBottom').addEventListener('click', () => runTriagePrefill());
 
 document.getElementById('t_upload_audio_btn').addEventListener('click', async () => {
   if (!currentTriageNote) return;
@@ -2613,16 +2685,20 @@ document.getElementById('t_upload_audio_btn').addEventListener('click', async ()
   await attachAudioToNote('t', uploadBody.sha256, 'manual upload', file.name);
 });
 
-// t/r/l/e/x — chosen so delete (x) sits far from accept (r) on the key
+// t/r/l/e/x/v — chosen so delete (x) sits far from accept (r) on the key
 // layout (design Risks/task 4.6): a mis-keyed delete on a draft is
 // unrecoverable. Suppressed while focus is in any form control, so typing
-// in a field never fires a verdict by accident.
+// in a field never fires a verdict by accident. The bound button is the one
+// in the bottom verdict bar — it's always visible, unlike the top-of-card
+// prefill button — so the key-press flash below lands somewhere the
+// operator is actually looking.
 const TRIAGE_KEY_BINDINGS = {
   t: 'triageSendBackBtn',
   r: 'triageAcceptBtn',
-  l: 'triagePrefillBtn',
+  l: 'triagePrefillBtnBottom',
   e: 'triageSkipBtn',
   x: 'triageDeleteBtn',
+  v: 'triagePreviousBtn',
 };
 document.addEventListener('keydown', (e) => {
   if (parseHash().route !== 'triage' || !currentTriageNote) return;
@@ -2631,7 +2707,15 @@ document.addEventListener('keydown', (e) => {
   const targetId = TRIAGE_KEY_BINDINGS[e.key.toLowerCase()];
   if (!targetId) return;
   e.preventDefault();
-  document.getElementById(targetId).click();
+  const btn = document.getElementById(targetId);
+  // Visible confirmation that the key registered, independent of whatever
+  // the action itself does (some of which — skip, prefill — have no other
+  // visible effect on a note that was already fully filled).
+  btn.classList.remove('key-pressed');
+  void btn.offsetWidth;
+  btn.classList.add('key-pressed');
+  btn.addEventListener('animationend', () => btn.classList.remove('key-pressed'), { once: true });
+  btn.click();
 });
 
 // ── prefill: N ordinary pass-through lookups, walking the operator's
@@ -2658,101 +2742,131 @@ async function walkProviders(kind, prefix, queryValue, lang, limit) {
   return null;
 }
 
-async function runTriagePrefill() {
-  if (!currentTriageNote) return;
-  const settings = await fetchSettings();
-  const sourceLang = smiaLangCode(document.getElementById('t_source_lang').value);
-  let filledCount = 0;
+// Briefly highlights a form control (or any block element) the moment
+// prefill writes into it — the per-field provenance badge says *where* a
+// value came from, this says *that something just changed here*, which the
+// badge alone doesn't convey at a glance across a dense form.
+function flashPrefilled(el, boxStyle) {
+  if (!el) return;
+  const cls = boxStyle ? 'prefill-flash-box' : 'prefill-flash';
+  el.classList.remove(cls);
+  void el.offsetWidth; // restart the animation even if it's still running
+  el.classList.add(cls);
+  el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+}
 
+async function prefillTriageTranscription(sourceLang) {
   const transcriptionEl = document.getElementById('t_transcription');
-  if (!transcriptionEl.value.trim()) {
-    const query = defaultSuggestQuery('t', 'ipa');
-    if (query) {
-      const result = await walkProviders('ipa', 't', query, sourceLang);
-      const value = result && (result.value || (result.candidate && (result.candidate.ipa || result.candidate.phonemic || result.candidate.phonetic)));
-      if (value) {
-        transcriptionEl.value = value;
-        markTriageFieldProvenance('transcription', result.provider);
-        filledCount += 1;
-      }
-    }
-  }
+  if (transcriptionEl.value.trim()) return false;
+  const query = defaultSuggestQuery('t', 'ipa');
+  if (!query) return false;
+  const result = await walkProviders('ipa', 't', query, sourceLang);
+  const value = result && (result.value || (result.candidate && (result.candidate.ipa || result.candidate.phonemic || result.candidate.phonetic)));
+  if (!value) return false;
+  transcriptionEl.value = value;
+  flashPrefilled(transcriptionEl);
+  markTriageFieldProvenance('transcription', result.provider);
+  return true;
+}
 
+async function prefillTriageTranslations() {
+  const settings = await fetchSettings();
   const existingLangs = new Set(readTranslationRows('t_translations_list').map((t) => t.lang.toLowerCase()));
   const targetLangs = (settings.default_target_langs && settings.default_target_langs.length) ? settings.default_target_langs : SUGGEST_DEFAULT_LANGS;
   const translationsQuery = defaultSuggestQuery('t', 'translations');
-  if (translationsQuery) {
-    for (const lang of targetLangs) {
-      if (existingLangs.has(lang.toLowerCase())) continue;
-      const result = await walkProviders('translations', 't', translationsQuery, lang);
-      if (result && result.candidate && result.candidate.text) {
-        addTranslationRow('t_translations_list', lang, result.candidate.text, null);
-        markTriageFieldProvenance('translations', result.provider);
-        filledCount += 1;
-      }
+  if (!translationsQuery) return false;
+  let any = false;
+  for (const lang of targetLangs) {
+    if (existingLangs.has(lang.toLowerCase())) continue;
+    const result = await walkProviders('translations', 't', translationsQuery, lang);
+    if (result && result.candidate && result.candidate.text) {
+      const row = addTranslationRow('t_translations_list', lang, result.candidate.text, null);
+      flashPrefilled(row && row.querySelector('.t-text'));
+      markTriageFieldProvenance('translations', result.provider);
+      any = true;
     }
   }
+  return any;
+}
 
+// Shared by the full prefill walk and by a PoS change — a new PoS reshapes
+// the inflection fields to an empty set (updateTriageInflectionFields), so
+// re-running this immediately is what "automatically redo the inflections"
+// means in practice: the walk only ever fills gaps, and a reshape just
+// created a fresh set of them.
+async function prefillTriageInflections() {
   const pos = getPosValue('t_pos_select', 't_pos_custom');
-  if (INFLECTION_SHAPES[pos]) {
-    const lemma = document.getElementById('t_lemma').value.trim();
-    if (lemma) {
-      const result = await walkProviders('inflections', 't', lemma);
-      if (result && result.candidate && result.candidate.paradigm) {
-        const current = readInflectionFields('t_inflections_fields');
-        let any = false;
-        INFLECTION_SHAPES[pos].forEach((field) => {
-          if (!current[field] && result.candidate.paradigm[field]) {
-            const input = document.querySelector(`#t_inflections_fields [data-inflection-field="${field}"]`);
-            if (input) { input.value = result.candidate.paradigm[field]; any = true; }
-          }
-        });
-        if (any) { markTriageFieldProvenance('inflections', result.provider); filledCount += 1; }
-      }
+  if (!INFLECTION_SHAPES[pos]) return false;
+  const lemma = document.getElementById('t_lemma').value.trim();
+  if (!lemma) return false;
+  const result = await walkProviders('inflections', 't', lemma);
+  if (!result || !result.candidate || !result.candidate.paradigm) return false;
+  const current = readInflectionFields('t_inflections_fields');
+  let any = false;
+  INFLECTION_SHAPES[pos].forEach((field) => {
+    if (!current[field] && result.candidate.paradigm[field]) {
+      const input = document.querySelector(`#t_inflections_fields [data-inflection-field="${field}"]`);
+      if (input) { input.value = result.candidate.paradigm[field]; flashPrefilled(input); any = true; }
     }
-  }
+  });
+  if (any) markTriageFieldProvenance('inflections', result.provider);
+  return any;
+}
 
-  // Always 3 examples, one per line — a fixed count regardless of the
-  // editor's own per-panel examples-count control, since the triage card has
-  // no such control of its own.
-  const TRIAGE_PREFILL_EXAMPLES_COUNT = 3;
+// Always 3 examples, one per line — a fixed count regardless of the
+// editor's own per-panel examples-count control, since the triage card has
+// no such control of its own.
+const TRIAGE_PREFILL_EXAMPLES_COUNT = 3;
+
+async function prefillTriageExamples() {
   const ctxEl = document.getElementById('t_context_text');
-  if (!ctxEl.value.trim()) {
-    const exQuery = defaultSuggestQuery('t', 'examples');
-    if (exQuery) {
-      const result = await walkProviders('examples', 't', exQuery, undefined, TRIAGE_PREFILL_EXAMPLES_COUNT);
-      const lines = result && Array.isArray(result.candidates)
-        ? result.candidates.slice(0, TRIAGE_PREFILL_EXAMPLES_COUNT).map((c) => c.text).filter(Boolean)
-        : [];
-      if (lines.length) {
-        ctxEl.value = lines.join('\n');
-        markTriageFieldProvenance('context_text', result.provider);
-        filledCount += 1;
-      }
-    }
-  }
+  if (ctxEl.value.trim()) return false;
+  const exQuery = defaultSuggestQuery('t', 'examples');
+  if (!exQuery) return false;
+  const result = await walkProviders('examples', 't', exQuery, undefined, TRIAGE_PREFILL_EXAMPLES_COUNT);
+  const lines = result && Array.isArray(result.candidates)
+    ? result.candidates.slice(0, TRIAGE_PREFILL_EXAMPLES_COUNT).map((c) => c.text).filter(Boolean)
+    : [];
+  if (!lines.length) return false;
+  ctxEl.value = lines.join('\n');
+  flashPrefilled(ctxEl);
+  markTriageFieldProvenance('context_text', result.provider);
+  return true;
+}
 
-  // Audio: only a real candidate (sha256 present) auto-attaches — a
-  // manual-link provider's empty-candidates-plus-url answer is exactly the
-  // "has no entry" case the walk is defined to fall through on, never
-  // something to surface here (settings page's own note on this).
-  if (currentTriageNote && !currentTriageNote.audio_blob) {
-    const audioQuery = defaultSuggestQuery('t', 'tts');
-    if (audioQuery) {
-      const result = await walkProviders('tts', 't', audioQuery, sourceLang);
-      if (result && result.candidate && result.candidate.sha256) {
-        const fetched = await api('/api/enrich/tts/use', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sha256: result.candidate.sha256 }),
-        });
-        if (fetched.status === 200) {
-          const attached = await attachAudioToNote('t', fetched.body.sha256, result.provider, null);
-          if (attached) { markTriageFieldProvenance('audio', result.provider); filledCount += 1; }
-        }
-      }
-    }
-  }
+// Audio: only a real candidate (sha256 present) auto-attaches — a
+// manual-link provider's empty-candidates-plus-url answer is exactly the
+// "has no entry" case the walk is defined to fall through on, never
+// something to surface here (settings page's own note on this).
+async function prefillTriageAudio(sourceLang) {
+  if (!currentTriageNote || currentTriageNote.audio_blob) return false;
+  const audioQuery = defaultSuggestQuery('t', 'tts');
+  if (!audioQuery) return false;
+  const result = await walkProviders('tts', 't', audioQuery, sourceLang);
+  if (!result || !result.candidate || !result.candidate.sha256) return false;
+  const fetched = await api('/api/enrich/tts/use', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sha256: result.candidate.sha256 }),
+  });
+  if (fetched.status !== 200) return false;
+  const attached = await attachAudioToNote('t', fetched.body.sha256, result.provider, null);
+  if (!attached) return false;
+  markTriageFieldProvenance('audio', result.provider);
+  flashPrefilled(document.getElementById('t_audio_player'), true);
+  return true;
+}
+
+async function runTriagePrefill() {
+  if (!currentTriageNote) return;
+  const sourceLang = smiaLangCode(document.getElementById('t_source_lang').value);
+  let filledCount = 0;
+
+  if (await prefillTriageTranscription(sourceLang)) filledCount += 1;
+  if (await prefillTriageTranslations()) filledCount += 1;
+  if (await prefillTriageInflections()) filledCount += 1;
+  if (await prefillTriageExamples()) filledCount += 1;
+  if (await prefillTriageAudio(sourceLang)) filledCount += 1;
 
   syncSuggestQueries('t');
   if (filledCount > 0) enrichToast(`Prefilled ${filledCount} field${filledCount === 1 ? '' : 's'}`);

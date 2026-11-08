@@ -550,6 +550,35 @@ pre.json {
 .notch.done { background: var(--ok); opacity: .4; }
 .notch.here { background: var(--accent); height: 27px; width: 9px; }
 
+/* a field just written by prefill, briefly, so a dense form reads at a
+   glance which values are new rather than requiring the per-field "src"
+   badge to be read individually */
+@keyframes prefillFlash {
+  0% { background-color: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
+  100% { background-color: var(--bg-sunken); box-shadow: 0 0 0 0 transparent; }
+}
+input.prefill-flash, textarea.prefill-flash, select.prefill-flash {
+  animation: prefillFlash 1000ms ease-out;
+}
+@keyframes prefillFlashBox {
+  0% { box-shadow: 0 0 0 3px var(--accent-soft); border-radius: var(--radius); }
+  100% { box-shadow: 0 0 0 0 transparent; border-radius: var(--radius); }
+}
+.prefill-flash-box { animation: prefillFlashBox 1000ms ease-out; }
+
+/* visible confirmation that a triage key binding registered — independent
+   of whatever the bound action does, since some actions (skip, prefill on
+   an already-full note) have no other visible effect */
+@keyframes keyPressFlash {
+  0% { transform: scale(0.93); filter: brightness(1.35); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+.key-pressed { animation: keyPressFlash 220ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .prefill-flash, .prefill-flash-box, .key-pressed { animation: none !important; }
+}
+
 /* where a prefilled value came from — provenance, not judgement */
 .src {
   font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint);
