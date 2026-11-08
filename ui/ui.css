@@ -534,6 +534,21 @@ pre.json {
 }
 .belt-counts .n small { color: var(--text-faint); font-size: 13px; font-weight: 400; }
 .belt-right { margin-left: auto; }
+.eyebrow {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-faint); font-weight: 600;
+}
+
+/* one notch per note in the current pass — a reminder that the queue is
+   walked once, not a precise percentage (design Risks: deferred notes
+   return at the end, so this is a position, not a countdown). */
+.belt-track {
+  flex: 1; min-width: 100px; display: flex; align-items: flex-end; gap: 3px;
+  height: 30px; overflow-x: auto; padding-bottom: 2px;
+}
+.notch { flex: none; width: 7px; border-radius: 2px; background: var(--border); height: 11px; }
+.notch.done { background: var(--ok); opacity: .4; }
+.notch.here { background: var(--accent); height: 27px; width: 9px; }
 
 /* where a prefilled value came from — provenance, not judgement */
 .src {

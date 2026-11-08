@@ -1201,13 +1201,35 @@ document.querySelectorAll('[data-suggest-rerun]').forEach((btn) => {
   });
 });
 
-// ── reactive lemma: follows `text`'s first token until edited directly ──
+// ── reactive lemma: follows a guess derived from `text` until edited directly
+
+// Norwegian particle verbs ("legge til", "legge ut") and bare indefinite
+// nouns ("en bil", "ei bok", "et hus") carry a word the lemma itself never
+// wants: an indefinite article or infinitive marker in front, or a
+// separable-verb particle/preposition behind. A plain "first word" guess
+// gets particle verbs right (the particle is already at the end) but gets
+// articles and the infinitive marker wrong — this strips both ends before
+// falling back to the first remaining token.
+const LEMMA_GUESS_PREFIX_STOPWORDS = new Set(['en', 'ei', 'et', 'å']);
+const LEMMA_GUESS_SUFFIX_STOPWORDS = new Set([
+  'til', 'ut', 'inn', 'opp', 'ned', 'av', 'på', 'i', 'om', 'for', 'fra', 'med', 'etter', 'over', 'under', 'sammen',
+]);
+
+function deriveLemmaGuess(text) {
+  const tokens = (text || '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return tokens[0] || '';
+  let start = 0;
+  let end = tokens.length - 1;
+  while (start < end && LEMMA_GUESS_PREFIX_STOPWORDS.has(tokens[start].toLowerCase())) start += 1;
+  while (end > start && LEMMA_GUESS_SUFFIX_STOPWORDS.has(tokens[end].toLowerCase())) end -= 1;
+  return tokens.slice(start, end + 1).join(' ');
+}
 
 function syncLemmaFromText(prefix) {
   const lemmaEl = document.getElementById(`${prefix}_lemma`);
   if (!lemmaEl || lemmaEl.dataset.dirty === '1') return;
   const textEl = document.getElementById(`${prefix}_text`);
-  lemmaEl.value = textEl ? (textEl.value.trim().split(/\s+/)[0] || '') : '';
+  lemmaEl.value = textEl ? deriveLemmaGuess(textEl.value) : '';
 }
 
 function wireLemmaTextSync(prefix) {
@@ -2308,15 +2330,41 @@ async function loadTriageQueue() {
   const { status, body } = await api(`/api/notes/authoring${qs({ status: 'draft', origin, sort: 'updated_asc' })}`);
   triageQueue = status === 200 ? body : [];
   triageIndex = 0;
+  triageBeltTrackTotal = -1; // force the notch track to rebuild for the new queue
   refreshTriageRailBadge();
   updateTriageBelt();
   await showTriageNote();
+}
+
+// A notch per note in a queue beyond this size would be an unreasonable
+// number of DOM nodes for very little visual gain — the numeric counts
+// above remain the load-bearing indicator either way (design Risks).
+const TRIAGE_BELT_TRACK_MAX_NOTCHES = 500;
+let triageBeltTrackTotal = -1;
+
+function renderTriageBeltTrack() {
+  const track = document.getElementById('triageBeltTrack');
+  const total = triageQueue.length;
+  if (total > TRIAGE_BELT_TRACK_MAX_NOTCHES) {
+    track.style.display = 'none';
+    return;
+  }
+  track.style.display = '';
+  if (total !== triageBeltTrackTotal) {
+    track.innerHTML = Array.from({ length: total }, () => '<i class="notch"></i>').join('');
+    triageBeltTrackTotal = total;
+  }
+  Array.from(track.children).forEach((notch, i) => {
+    notch.className = i < triageIndex ? 'notch done' : i === triageIndex ? 'notch here' : 'notch';
+  });
+  track.setAttribute('aria-label', `Queue position: note ${Math.min(triageIndex + 1, total)} of ${total}`);
 }
 
 function updateTriageBelt() {
   const total = triageQueue.length;
   const remaining = Math.max(0, total - triageIndex);
   document.getElementById('triageCount').innerHTML = `${remaining} <small>/ ${total}</small>`;
+  renderTriageBeltTrack();
   const deferredPill = document.getElementById('triageDeferredPill');
   if (triageDeferredCount > 0) {
     deferredPill.style.display = '';
@@ -2327,7 +2375,10 @@ function updateTriageBelt() {
 }
 
 function triageProvenanceSrcId(fieldKey) {
-  return { transcription: 't_transcription_src', translations: 't_translations_src', inflections: 't_inflections_src', context_text: 't_context_text_src', audio: 't_audio_src' }[fieldKey];
+  return {
+    lemma: 't_lemma_src', transcription: 't_transcription_src', translations: 't_translations_src',
+    inflections: 't_inflections_src', context_text: 't_context_text_src', audio: 't_audio_src',
+  }[fieldKey];
 }
 
 function markTriageFieldProvenance(fieldKey, provider) {
@@ -2338,7 +2389,7 @@ function markTriageFieldProvenance(fieldKey, provider) {
 }
 
 function clearTriageProvenanceBadges() {
-  ['transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
+  ['lemma', 'transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
     const el = document.getElementById(triageProvenanceSrcId(key));
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   });
@@ -2351,7 +2402,7 @@ function clearTriageProvenanceBadges() {
 document.getElementById('triageForm').addEventListener('input', (e) => {
   syncSuggestQueries('t');
   const fieldKey = {
-    t_transcription: 'transcription', t_context_text: 'context_text',
+    t_lemma: 'lemma', t_transcription: 'transcription', t_context_text: 'context_text',
   }[e.target.id];
   if (fieldKey) {
     const el = document.getElementById(triageProvenanceSrcId(fieldKey));
@@ -2422,6 +2473,19 @@ async function showTriageNote() {
   resetSuggestQueries('t'); // closes and empties every suggest panel (tasks 3.5/5.7/7.10)
   clearTriageProvenanceBadges();
   renderTriageAudioSection(note);
+
+  // Lemma prefills unconditionally, before any provider is asked — inflections
+  // (and the inflections prefill walk below) query on lemma, so this has to
+  // land first regardless of the on_open/on_demand setting, not wait behind
+  // a provider round-trip the way every other field's prefill does.
+  const lemmaEl = document.getElementById('t_lemma');
+  if (!lemmaEl.value.trim()) {
+    const guess = deriveLemmaGuess(document.getElementById('t_text').value);
+    if (guess) {
+      lemmaEl.value = guess;
+      markTriageFieldProvenance('lemma', 'derived from text');
+    }
+  }
 
   const settings = await fetchSettings();
   if ((settings.prefill_timing || 'on_open') === 'on_open') runTriagePrefill();
@@ -2549,18 +2613,25 @@ document.getElementById('t_upload_audio_btn').addEventListener('click', async ()
   await attachAudioToNote('t', uploadBody.sha256, 'manual upload', file.name);
 });
 
-// Place delete away from accept in the key layout (design Risks/task 4.6):
-// ⌫/Delete at one end, ⏎ accept at the other, with send-to-back/skip
-// between them. Suppressed while focus is in any form control, so typing
+// t/r/l/e/x — chosen so delete (x) sits far from accept (r) on the key
+// layout (design Risks/task 4.6): a mis-keyed delete on a draft is
+// unrecoverable. Suppressed while focus is in any form control, so typing
 // in a field never fires a verdict by accident.
+const TRIAGE_KEY_BINDINGS = {
+  t: 'triageSendBackBtn',
+  r: 'triageAcceptBtn',
+  l: 'triagePrefillBtn',
+  e: 'triageSkipBtn',
+  x: 'triageDeleteBtn',
+};
 document.addEventListener('keydown', (e) => {
   if (parseHash().route !== 'triage' || !currentTriageNote) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('triageAcceptBtn').click(); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('triageSkipBtn').click(); }
-  else if (e.key.toLowerCase() === 'l') { e.preventDefault(); document.getElementById('triageSendBackBtn').click(); }
-  else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); document.getElementById('triageDeleteBtn').click(); }
+  const targetId = TRIAGE_KEY_BINDINGS[e.key.toLowerCase()];
+  if (!targetId) return;
+  e.preventDefault();
+  document.getElementById(targetId).click();
 });
 
 // ── prefill: N ordinary pass-through lookups, walking the operator's
@@ -2581,7 +2652,7 @@ async function walkProviders(kind, prefix, queryValue, lang, limit) {
       continue;
     }
     if (Array.isArray(body.candidates) && body.candidates.length > 0) {
-      return { provider, candidate: body.candidates[0] };
+      return { provider, candidate: body.candidates[0], candidates: body.candidates };
     }
   }
   return null;
@@ -2641,13 +2712,20 @@ async function runTriagePrefill() {
     }
   }
 
+  // Always 3 examples, one per line — a fixed count regardless of the
+  // editor's own per-panel examples-count control, since the triage card has
+  // no such control of its own.
+  const TRIAGE_PREFILL_EXAMPLES_COUNT = 3;
   const ctxEl = document.getElementById('t_context_text');
   if (!ctxEl.value.trim()) {
     const exQuery = defaultSuggestQuery('t', 'examples');
     if (exQuery) {
-      const result = await walkProviders('examples', 't', exQuery, undefined, examplesLimitValue('t'));
-      if (result && result.candidate && result.candidate.text) {
-        ctxEl.value = result.candidate.text;
+      const result = await walkProviders('examples', 't', exQuery, undefined, TRIAGE_PREFILL_EXAMPLES_COUNT);
+      const lines = result && Array.isArray(result.candidates)
+        ? result.candidates.slice(0, TRIAGE_PREFILL_EXAMPLES_COUNT).map((c) => c.text).filter(Boolean)
+        : [];
+      if (lines.length) {
+        ctxEl.value = lines.join('\n');
         markTriageFieldProvenance('context_text', result.provider);
         filledCount += 1;
       }

@@ -304,6 +304,7 @@
           <div class="eyebrow">Drafts left</div>
           <div class="n" id="triageCount">— <small>/ —</small></div>
         </div>
+        <div class="belt-track" id="triageBeltTrack" tabindex="0" aria-label="Queue position"></div>
         <div class="belt-right">
           <span class="pill pill-warn" id="triageDeferredPill" style="display:none"></span>
         </div>
@@ -321,7 +322,7 @@
               <div class="page-sub mono" id="triageMeta" style="margin-top:2px;"></div>
             </div>
             <span class="spacer"></span>
-            <button type="button" class="btn-ghost" id="triagePrefillBtn">⟳ Prefill again</button>
+            <button type="button" class="btn-ghost" id="triagePrefillBtn">⟳ Prefill again <kbd>L</kbd></button>
           </div>
 
           <div class="detail-grid">
@@ -333,7 +334,7 @@
                     <textarea id="t_text" required></textarea>
                   </div>
                   <div class="field" id="t_lemma_field">
-                    <div class="field-label-row"><label for="t_lemma">Lemma</label></div>
+                    <div class="field-label-row"><label for="t_lemma">Lemma</label><span class="spacer"></span><span class="src" id="t_lemma_src" style="display:none"></span></div>
                     <input id="t_lemma" type="text">
                   </div>
                 </div>
@@ -454,12 +455,12 @@
 
       <div class="verdict-bar" id="triageVerdictBar" style="display:none">
         <div class="verdict-bar-inner">
-          <button type="button" class="btn-danger" id="triageDeleteBtn">Delete <kbd>⌫</kbd></button>
-          <button type="button" class="btn-ghost" id="triageSendBackBtn">Send to back <kbd>L</kbd></button>
-          <button type="button" class="btn-ghost" id="triageSkipBtn">Skip <kbd>→</kbd></button>
+          <button type="button" class="btn-danger" id="triageDeleteBtn">Delete <kbd>X</kbd></button>
+          <button type="button" class="btn-ghost" id="triageSendBackBtn">Send to back <kbd>T</kbd></button>
+          <button type="button" class="btn-ghost" id="triageSkipBtn">Skip <kbd>E</kbd></button>
           <span class="inline-note" style="margin:0 0 0 6px;">edits are kept on send-to-back</span>
           <span class="spacer"></span>
-          <button type="button" class="btn-primary" id="triageAcceptBtn">Mark ready &amp; next <kbd>⏎</kbd></button>
+          <button type="button" class="btn-primary" id="triageAcceptBtn">Mark ready &amp; next <kbd>R</kbd></button>
         </div>
       </div>
     </section>
