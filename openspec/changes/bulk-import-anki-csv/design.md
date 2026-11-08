@@ -77,6 +77,28 @@ exactly the failure mode task 4.8 exists to catch, and catching them is a
 better outcome than hitting 9,129 on a flawed first measurement would have
 been.
 
+**A third bug, found by the operator's own spot-check rather than by
+code review:** the parenthetical-stripping added above to fix the
+`and`-leak case was too broad. It also stripped `(som om)` from C03011's
+`å late (som om)` ("to pretend"), silently collapsing it into bare
+`late` (C03002's own, separately-taught sense) and losing the fact that
+stock teaches this as its own distinct, already-known phrase. Parens are
+not uniformly asides: in a regular `A=="N"` vocabulary card they are
+(`B05`'s `"(comparative and superlative are not in use)"`), but in a
+C03 conjugation answer, a parenthetical directly after the infinitive is
+the verb's own defining complement, not commentary about it. Fixed by
+making `stock._segments` discard parens wholesale only for the `A=="N"`
+extraction path; for C03's `E` field the parens characters are removed
+but their contents kept as ordinary tokens, so `"å late (som om)"`
+becomes the segment `"å late som om"`. Confirmed afterward: `late`,
+`late til`, `late etter`, and `late som om` are now all correctly known,
+and the `and`/`comparative` leak fix is untouched (it only ever applied
+to the other path). This didn't change the measured auto-skip count —
+none of the five import sources happens to contain a literal candidate
+spelled `late til` or `late som om` — but it was a real correctness gap
+in the known-set regardless, exactly the kind task 4.8 is there to catch
+before push, not after.
+
 Two more corrections, this time to task 4.7's worked regression
 examples, found by actually running the judge against the real stock
 bundle rather than re-deriving it from the earlier prose:

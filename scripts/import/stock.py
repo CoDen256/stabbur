@@ -104,18 +104,37 @@ def strip_html(html: str) -> str:
 _PAREN_ACROSS_LINES_RE = re.compile(r"\([^()]*?\)", re.DOTALL)
 
 
-def _segments(field_html: str) -> list[str]:
+def _segments(field_html: str, strip_parens: bool = True) -> list[str]:
     """`<br>`-separated lines, each further split on commas — each
     resulting segment is one known phrase/form, not the whole field.
 
-    Parenthetical asides are stripped on the *whole field* before `<br>`
-    splitting, not per line — some of them span a `<br>` themselves (e.g.
-    `"(comparative and superlative<br> are not in use)"`, deck B05), and
-    stripping per-line would leave the opening half dangling as a false
-    "known" segment."""
-    without_tags_or_parens = TAG_RE.sub(lambda m: "<br>" if m.group(0).lower().startswith("<br") else " ", field_html)
-    without_tags_or_parens = _PAREN_ACROSS_LINES_RE.sub(" ", without_tags_or_parens)
-    lines = re.split(r"<br\s*/?>", without_tags_or_parens, flags=re.IGNORECASE)
+    `strip_parens` distinguishes two genuinely different uses of
+    parentheses across the sources this reads:
+
+    - In a regular `A=="N"` vocabulary field, a parenthetical is a usage
+      *aside* (`"(comparative and superlative are not in use)"`, deck
+      B05) — not part of the word, safe to discard wholesale. Default
+      True for this reason; done on the *whole field* before `<br>`
+      splitting, not per line, since some asides span a `<br>` themselves
+      (`"(comparative and superlative<br> are not in use)"`) and
+      stripping per-line would leave the opening half dangling as a false
+      "known" segment.
+    - In C03's conjugation-answer field, a parenthetical directly after
+      the infinitive is the verb's own defining complement, not an aside
+      — `"å late (som om)"` (deck C03, card C03011) means "to pretend",
+      distinct from bare `"late"` (C03002). Discarding it as an aside
+      would silently drop a real, already-taught sense from the
+      known-set — caught by spot-checking the skipped set for an item
+      the operator already knew wasn't in it (task 4.8's whole point).
+      Call with `strip_parens=False` here; parens are then just
+      punctuation characters removed, keeping their contents as
+      ordinary tokens."""
+    without_tags = TAG_RE.sub(lambda m: "<br>" if m.group(0).lower().startswith("<br") else " ", field_html)
+    if strip_parens:
+        without_tags = _PAREN_ACROSS_LINES_RE.sub(" ", without_tags)
+    else:
+        without_tags = without_tags.replace("(", " ").replace(")", " ")
+    lines = re.split(r"<br\s*/?>", without_tags, flags=re.IGNORECASE)
     segments = []
     for line in lines:
         clean = WHITESPACE_RE.sub(" ", line).strip()
@@ -137,7 +156,7 @@ def bootstrap_c03_lemma_map(cards: list[dict]) -> dict[str, str]:
     for card in cards:
         if card["DECK_ID"] != C03_DECK_ID:
             continue
-        segments = _segments(card["E"])
+        segments = _segments(card["E"], strip_parens=False)
         if not segments:
             continue
         head_line = segments[0]
@@ -159,12 +178,12 @@ def extract_known_segments(cards: list[dict]) -> list[tuple[str, dict]]:
     for card in cards:
         sources = []
         if card["A"] == "N":
-            sources.append(("N", card["N"]))
+            sources.append(("N", card["N"], True))
         if card["DECK_ID"] == C03_DECK_ID:
-            sources.append(("E", card["E"]))
+            sources.append(("E", card["E"], False))
 
-        for field_name, field_html in sources:
-            for segment in _segments(field_html):
+        for field_name, field_html, strip_parens in sources:
+            for segment in _segments(field_html, strip_parens=strip_parens):
                 results.append(
                     (
                         segment,

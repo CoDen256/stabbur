@@ -73,11 +73,25 @@ def test_stock_only_extracts_from_a_is_n_and_c03(stock_cards):
         assert card["A"] == "N" or card["DECK_ID"] == "C03"
 
 
-def test_stock_strips_parenthetical_asides_before_tokenizing(stock_cards):
+def test_stock_strips_parenthetical_asides_in_vocab_fields_but_not_in_c03(stock_cards, judge_fixtures):
+    """Two parenthetical uses, handled differently (design.md's section 4
+    correction note, found via the operator's own spot-check of the
+    skipped set):
+    - B05's "(comparative and superlative are not in use)" is a usage
+      aside on a regular A=="N" vocab card — must be discarded, or "and"
+      leaks into the known-set as if it were Norwegian.
+    - C03011's "å late (som om)" has the parenthetical AS the verb's
+      defining complement, not an aside — discarding it would silently
+      drop a real, already-taught sense ("late som om" = to pretend)
+      from the known-set, distinct from bare "late" (C03002)."""
     segments = [s for s, _ev in import_stock.extract_known_segments(stock_cards)]
     assert not any("and" == s.strip().lower() for s in segments)
-    # the specific leak case design.md identifies
     assert not any("comparative" in s.lower() for s in segments)
+
+    lemma_map, known_by_sig, known_by_head, denylist = judge_fixtures
+    for phrase in ("late", "late til", "late etter", "late som om"):
+        signature = lexeme.build_signature(phrase, lemma_map)
+        assert lexeme.signature_key(signature) in known_by_sig, f"{phrase!r} should be known from stock"
 
 
 # ---------------------------------------------------------------------------
