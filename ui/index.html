@@ -32,6 +32,8 @@
     <div class="rail-group-label">Content</div>
     <a href="#/notes" data-route="notes">Notes</a>
     <a href="#/grammar" data-route="grammar">Grammar rules</a>
+    <div class="rail-group-label">Review</div>
+    <a href="#/triage" data-route="triage">Triage <span class="badge" id="triageRailBadge" style="display:none"></span></a>
     <div class="rail-group-label">Create</div>
     <a href="#/new-note" data-route="new-note">+ New note</a>
     <a href="#/new-grammar" data-route="new-grammar">+ New grammar rule</a>
@@ -266,7 +268,198 @@
                 <button id="uploadAudioBtn" class="use-btn" type="button">Use</button>
               </div>
             </div>
+            <div class="field" style="margin-top:7px;">
+              <div class="field-label-row"><label for="e_link_url">Paste any audio link</label></div>
+              <div class="linkbox">
+                <input id="e_link_url" class="mono" type="text" placeholder="mp3 / wav / youtube?t=…">
+                <button type="button" class="use-btn link-capture-btn" data-link-prefix="e">Capture</button>
+              </div>
+              <div class="inline-note" id="e_link_status"></div>
+              <div class="inline-note">Not tied to a provider row — the link itself says what to do. The YouTube/timecode path is known-blocked against real YouTube; a direct audio link is the confirmed-working path.</div>
+            </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRIAGE BELT -->
+    <section class="page" id="page-triage">
+      <div class="page-head">
+        <div>
+          <h2>Triage</h2>
+          <div class="page-sub">One drafted note at a time, prefilled, three verdicts underneath. The editor is untouched and still the way to open any single note.</div>
+        </div>
+        <div class="toolbar" style="margin:0;">
+          <label for="triageOriginSelect" style="font-size:12px; color:var(--text-dim);">Queue</label>
+          <select id="triageOriginSelect">
+            <option value="import">import</option>
+            <option value="manual">manual</option>
+            <option value="capture">capture</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="belt">
+        <div class="belt-counts">
+          <div class="eyebrow">Drafts left</div>
+          <div class="n" id="triageCount">— <small>/ —</small></div>
+        </div>
+        <div class="belt-right">
+          <span class="pill pill-warn" id="triageDeferredPill" style="display:none"></span>
+        </div>
+      </div>
+
+      <div id="triageEmpty" class="panel panel-pad" style="display:none">
+        <p class="inline-note">Queue clear — no drafted notes remain for this origin.</p>
+      </div>
+
+      <div id="triageCardWrap" style="display:none; padding-bottom:70px;">
+        <div class="panel panel-pad">
+          <div class="field-label-row" style="margin-bottom:14px;">
+            <div>
+              <h3 id="triageHeadword" style="font-size:18px;"></h3>
+              <div class="page-sub mono" id="triageMeta" style="margin-top:2px;"></div>
+            </div>
+            <span class="spacer"></span>
+            <button type="button" class="btn-ghost" id="triagePrefillBtn">⟳ Prefill again</button>
+          </div>
+
+          <div class="detail-grid">
+            <div>
+              <form id="triageForm">
+                <div class="field-row">
+                  <div class="field">
+                    <div class="field-label-row"><label for="t_text">Text (source language)</label></div>
+                    <textarea id="t_text" required></textarea>
+                  </div>
+                  <div class="field" id="t_lemma_field">
+                    <div class="field-label-row"><label for="t_lemma">Lemma</label></div>
+                    <input id="t_lemma" type="text">
+                  </div>
+                </div>
+                <div class="field-row">
+                  <div class="field"><label for="t_type">Type</label>
+                    <select id="t_type">
+                      <option value="word">word</option>
+                      <option value="expression">expression</option>
+                      <option value="listening">listening</option>
+                      <option value="pronunciation">pronunciation</option>
+                      <option value="grammar">grammar</option>
+                    </select>
+                  </div>
+                  <div class="field" id="t_pos_field">
+                    <label for="t_pos_select">Part of speech</label>
+                    <select id="t_pos_select">
+                      <option value="">— none —</option>
+                      <option value="substantiv">substantiv</option>
+                      <option value="adjektiv">adjektiv</option>
+                      <option value="verb">verb</option>
+                      <option value="adverb">adverb</option>
+                      <option value="preposisjon">preposisjon</option>
+                      <option value="konjunksjon">konjunksjon / subjunksjon</option>
+                      <option value="__custom__">Custom…</option>
+                    </select>
+                    <input id="t_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
+                  </div>
+                </div>
+                <input id="t_source_lang" type="text" style="display:none">
+                <div class="field" id="t_transcription_field">
+                  <div class="field-label-row"><label for="t_transcription">Transcription</label><span class="spacer"></span><span class="src" id="t_transcription_src" style="display:none"></span></div>
+                  <input id="t_transcription" type="text">
+                  <div class="suggest-control">
+                    <button type="button" class="suggest-toggle" data-suggest-toggle="t_ipa_suggest">✨ Suggest pronunciations<span class="count" id="t_ipa_suggest_count" style="display:none"></span></button>
+                    <div class="suggest-control-divider"></div>
+                    <input type="text" class="suggest-query" id="t_ipa_suggest_query" spellcheck="false">
+                    <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_ipa_suggest" title="Re-run every provider">⟳</button>
+                  </div>
+                  <div class="suggest-panel" id="t_ipa_suggest" data-kind="ipa" data-prefix="t"></div>
+                </div>
+                <div class="field">
+                  <div class="field-label-row"><label>Translations</label><span class="spacer"></span><span class="src" id="t_translations_src" style="display:none"></span></div>
+                  <div id="t_translations_list" class="translation-list"></div>
+                  <button type="button" class="btn-ghost" id="t_add_translation">+ Add translation</button>
+                  <div class="suggest-control">
+                    <button type="button" class="suggest-toggle" data-suggest-toggle="t_translations_suggest">✨ Suggest translations<span class="count" id="t_translations_suggest_count" style="display:none"></span></button>
+                    <div class="suggest-control-divider"></div>
+                    <input type="text" class="suggest-query" id="t_translations_suggest_query" spellcheck="false">
+                    <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_translations_suggest" title="Re-run every provider">⟳</button>
+                  </div>
+                  <div class="suggest-panel" id="t_translations_suggest" data-kind="translations" data-prefix="t"></div>
+                </div>
+                <div class="field" id="t_inflections_field" style="display:none">
+                  <div class="field-label-row"><label>Inflections</label><span class="spacer"></span><span class="src" id="t_inflections_src" style="display:none"></span></div>
+                  <div id="t_inflections_fields" class="inflection-fields"></div>
+                  <div class="suggest-control" style="margin-top:10px;">
+                    <button type="button" class="suggest-toggle" data-suggest-toggle="t_inflections_suggest">✨ Look up paradigm<span class="count" id="t_inflections_suggest_count" style="display:none"></span></button>
+                    <div class="suggest-control-divider"></div>
+                    <input type="text" class="suggest-query" id="t_inflections_suggest_query" spellcheck="false">
+                    <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_inflections_suggest" title="Re-run every provider">⟳</button>
+                  </div>
+                  <div class="suggest-panel" id="t_inflections_suggest" data-kind="inflections" data-prefix="t"></div>
+                </div>
+                <div class="field">
+                  <div class="field-label-row"><label for="t_context_text">Context text</label><span class="spacer"></span><span class="src" id="t_context_text_src" style="display:none"></span></div>
+                  <textarea id="t_context_text"></textarea>
+                  <div class="suggest-control">
+                    <button type="button" class="suggest-toggle" data-suggest-toggle="t_examples_suggest">✨ Suggest examples<span class="count" id="t_examples_suggest_count" style="display:none"></span></button>
+                    <div class="suggest-control-divider"></div>
+                    <input type="text" class="suggest-query" id="t_examples_suggest_query" spellcheck="false">
+                    <div class="suggest-control-divider"></div>
+                    <input type="number" class="examples-count-input" id="t_examples_count" min="1" max="10" value="3" title="Candidates per provider">
+                    <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_examples_suggest" title="Re-run every provider">⟳</button>
+                  </div>
+                  <div class="suggest-panel" id="t_examples_suggest" data-kind="examples" data-prefix="t"></div>
+                </div>
+                <div class="field" id="t_grammar_rule_field" style="display:none">
+                  <label for="t_grammar_rule_id">Grammar rule</label>
+                  <select id="t_grammar_rule_id"><option value="">— none —</option></select>
+                </div>
+              </form>
+            </div>
+
+            <div>
+              <div class="field-label-row" style="margin-bottom:12px;"><h3 style="font-size:13px;">Audio</h3><span class="spacer"></span><span class="src" id="t_audio_src" style="display:none"></span></div>
+              <div id="t_audio_none" class="inline-note">No audio attached.</div>
+              <div id="t_audio_player" style="display:none">
+                <audio id="t_audioElement" controls style="width:100%;" preload="metadata"></audio>
+                <div class="inline-note" id="t_audio_sel_note"></div>
+              </div>
+              <div class="suggest-control" style="margin-top:14px;">
+                <button type="button" class="suggest-toggle" data-suggest-toggle="t_tts_suggest">✨ Suggest<span class="count" id="t_tts_suggest_count" style="display:none"></span></button>
+                <div class="suggest-control-divider"></div>
+                <input type="text" class="suggest-query" id="t_tts_suggest_query" spellcheck="false">
+                <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_tts_suggest" title="Re-run every provider">⟳</button>
+              </div>
+              <div class="suggest-panel" id="t_tts_suggest" data-kind="tts" data-prefix="t"></div>
+              <div class="provider-row" style="margin-top:7px;">
+                <div class="provider-head"><span class="provider-name">Manual upload</span></div>
+                <div class="candidate-row" style="border-top:none; padding-top:0;">
+                  <input id="t_audio_file" type="file" accept="audio/*" style="flex:1; min-width:0;">
+                  <button id="t_upload_audio_btn" class="use-btn" type="button">Use</button>
+                </div>
+              </div>
+              <div class="field" style="margin-top:7px;">
+                <div class="field-label-row"><label for="t_link_url">Paste any audio link</label></div>
+                <div class="linkbox">
+                  <input id="t_link_url" class="mono" type="text" placeholder="mp3 / wav / youtube?t=…">
+                  <button type="button" class="use-btn link-capture-btn" data-link-prefix="t">Capture</button>
+                </div>
+                <div class="inline-note" id="t_link_status"></div>
+                <div class="inline-note">Recognised: direct audio files (confirmed working) and youtube URLs carrying <span class="mono">?t=</span> (known-blocked against real YouTube — still attempted, and the real failure is reported).</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="verdict-bar" id="triageVerdictBar" style="display:none">
+        <div class="verdict-bar-inner">
+          <button type="button" class="btn-danger" id="triageDeleteBtn">Delete <kbd>⌫</kbd></button>
+          <button type="button" class="btn-ghost" id="triageSendBackBtn">Send to back <kbd>L</kbd></button>
+          <button type="button" class="btn-ghost" id="triageSkipBtn">Skip <kbd>→</kbd></button>
+          <span class="inline-note" style="margin:0 0 0 6px;">edits are kept on send-to-back</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn-primary" id="triageAcceptBtn">Mark ready &amp; next <kbd>⏎</kbd></button>
         </div>
       </div>
     </section>
@@ -468,6 +661,20 @@
       </div>
 
       <div class="set">
+        <div class="sgroup">
+          <h3>Triage prefilling</h3>
+          <div class="sitem">
+            <div class="txt">
+              <b>When primary providers run</b>
+              <p>On open, every empty field is filled the moment a note is presented for triage. On the fill control, nothing is looked up until it's pressed.</p>
+            </div>
+            <div class="ctl seg" id="settingsPrefillTimingSeg">
+              <button type="button" data-value="on_open">On open</button>
+              <button type="button" data-value="on_demand">On the fill control</button>
+            </div>
+          </div>
+        </div>
+
         <div class="sgroup">
           <h3>Provider order <span>drag to reorder · the first enabled one wins</span></h3>
           <div id="settingsProvidersBody"></div>

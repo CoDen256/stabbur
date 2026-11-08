@@ -319,6 +319,25 @@ def register_notes_routes(app):
             notes = db.scalars(stmt).all()
             return jsonify([_serialize_authoring(n) for n in notes]), 200
 
+    @app.route("/api/notes/authoring/counts", methods=["GET"])
+    def notes_authoring_counts():
+        """note-triage: a remaining count per origin for the queue selector
+        (design.md tasks 1.3), so switching queues doesn't require fetching
+        every origin's full note list just to show a count."""
+        status = request.args.get("status", "draft")
+        if status not in NOTE_STATUSES:
+            return jsonify({"error": f"status must be one of {NOTE_STATUSES}"}), 400
+
+        with session_scope() as db:
+            rows = db.execute(
+                select(Note.origin, func.count())
+                .where(Note.status == status, Note.deleted_at.is_(None))
+                .group_by(Note.origin)
+            ).all()
+            counts = dict.fromkeys(NOTE_ORIGINS, 0)
+            counts.update(dict(rows))
+            return jsonify(counts), 200
+
     @app.route("/api/grammar_rules", methods=["POST"])
     def create_grammar_rule():
         # Minimal support so the authoring UI can create a grammar_rule row

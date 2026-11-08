@@ -86,6 +86,114 @@ def _parse_youtube_timecode(url: str) -> int | None:
         return None
 
 
+def _capture_direct_audio(url: str) -> tuple[str | None, tuple[dict, int] | None]:
+    """Fetches `url` and stores it as a stabbur blob if it looks like audio.
+    Returns `(sha256, None)` on success or `(None, (body, status))` on
+    failure — shared by the forvo alias and the generic link-shaped endpoint
+    (origin-scoped-triage-belt design D7)."""
+    try:
+        resp = requests.get(url, timeout=30.0, headers=_DIRECT_AUDIO_FETCH_HEADERS)
+    except requests.RequestException as exc:
+        return None, ({"error": f"could not fetch that url: {exc}"}, 502)
+    if resp.status_code != 200:
+        return None, ({"error": f"fetch failed with HTTP {resp.status_code}"}, 502)
+
+    content_type = resp.headers.get("Content-Type", "")
+    if not content_type.startswith("audio/") and "octet-stream" not in content_type:
+        return None, ({"error": f"that URL did not return audio (Content-Type: {content_type or 'unknown'})"}, 400)
+
+    return blob_storage.store(resp.content), None
+
+
+def _capture_youtube_clip(url: str, timecode: int) -> tuple[str | None, tuple[dict, int] | None]:
+    """Downloads a ~4-second window around `timecode` via yt-dlp and stores
+    it as a stabbur blob. Returns `(sha256, None)` on success or
+    `(None, (body, status))` on failure — shared by the filmot alias and the
+    generic link-shaped endpoint (origin-scoped-triage-belt design D7)."""
+    start = max(0, timecode - 2)
+    end = timecode + 2
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_template = os.path.join(tmp_dir, "clip.%(ext)s")
+        cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            # Audio-only, not yt-dlp's default video+audio selection —
+            # we only ever want the sound, so this skips ever needing a
+            # video format at all (discovered live: the default
+            # selection's merge requirement failed with "Requested
+            # format is not available" in a case where an audio-only
+            # stream was actually fine on its own).
+            "-f", "bestaudio/best",
+            # Pin extraction to player clients whose signed URLs
+            # actually work via ffmpeg's own plain HTTP GET (what
+            # --download-sections hands the URL to) — discovered live
+            # that yt-dlp's unrestricted client rotation can surface a
+            # format from a client (e.g. "visionos") whose URL 403s under
+            # ffmpeg even though yt-dlp itself resolved it successfully.
+            # android/web_embedded were the two that worked reliably
+            # across repeated tests; this is the kind of pin that can
+            # need revisiting as YouTube's own client support shifts
+            # (same already-accepted maintenance risk as the yt-dlp
+            # version itself, design.md).
+            "--extractor-args", "youtube:player_client=android,web_embedded",
+            "--download-sections", f"*{start}-{end}",
+            # Cut on exact section boundaries rather than the nearest
+            # keyframe — yt-dlp's own recommendation for
+            # --download-sections, otherwise a short window can silently
+            # grab the wrong (much larger) span.
+            "--force-keyframes-at-cuts",
+            "-x", "--audio-format", "mp3",
+            "-o", out_template,
+        ]
+        # A server-side IP calling YouTube directly (no logged-in
+        # browser session) is routinely flagged with "Sign in to confirm
+        # you're not a bot" regardless of JS-runtime support — yt-dlp's
+        # own documented fix is a cookies file exported from an
+        # authenticated browser session. Optional: most captures won't
+        # need it until/unless YouTube starts flagging this deployment's
+        # IP, at which point setting this env var (no code change) is
+        # the fix, not touching this route again.
+        cookies_file = os.environ.get("YTDLP_COOKIES_FILE")
+        if cookies_file and os.path.exists(cookies_file):
+            # yt-dlp doesn't just read this file, it writes updated
+            # cookies back to it after the session — discovered live as
+            # a crash (`OSError: Read-only file system`) against a
+            # read-only-mounted cookies file. Working off a per-request
+            # copy means --cookies always points at something writable
+            # regardless of how the configured file is mounted, and a
+            # given request can never corrupt the operator's original
+            # exported cookies file.
+            cookies_copy = os.path.join(tmp_dir, "cookies.txt")
+            shutil.copyfile(cookies_file, cookies_copy)
+            cmd += ["--cookies", cookies_copy]
+        cmd.append(url)
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.CalledProcessError as exc:
+            # The bare exit status alone ("returned non-zero exit status
+            # 1") is useless for diagnosing a live failure (expired
+            # signature, YouTube bot-check, a genuinely bad URL, ...) —
+            # surface yt-dlp's own stderr, which names the real cause.
+            detail = (exc.stderr or exc.stdout or "").strip()
+            return None, ({"error": f"yt-dlp failed: {detail[-1500:] or exc}"}, 502)
+        except subprocess.TimeoutExpired as exc:
+            return None, ({"error": f"yt-dlp timed out: {exc}"}, 502)
+
+        clip_path = os.path.join(tmp_dir, "clip.mp3")
+        if not os.path.exists(clip_path):
+            return None, ({"error": "yt-dlp did not produce an audio clip"}, 502)
+        with open(clip_path, "rb") as f:
+            clip_bytes = f.read()
+
+    return blob_storage.store(clip_bytes), None
+
+
 def register_enrich_routes(app):
     @app.route("/api/enrich/providers", methods=["GET"])
     def get_enrich_providers():
@@ -185,7 +293,9 @@ def register_enrich_routes(app):
         link to forvo.com) — this is the other half: the operator pastes
         back a direct audio URL they found on that page, and stabbur fetches
         it server-side so it can become a real, stabbur-owned blob
-        (manual-link-audio-capture design.md D2)."""
+        (manual-link-audio-capture design.md D2). Thin alias over
+        `_capture_direct_audio` (origin-scoped-triage-belt design D7) so the
+        per-provider paste-back row keeps working unchanged."""
         body = request.get_json(silent=True) or {}
         url = body.get("url")
         if not url:
@@ -195,18 +305,9 @@ def register_enrich_routes(app):
         except UnsafeUrlError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        try:
-            resp = requests.get(url, timeout=30.0, headers=_DIRECT_AUDIO_FETCH_HEADERS)
-        except requests.RequestException as exc:
-            return jsonify({"error": f"could not fetch that url: {exc}"}), 502
-        if resp.status_code != 200:
-            return jsonify({"error": f"fetch failed with HTTP {resp.status_code}"}), 502
-
-        content_type = resp.headers.get("Content-Type", "")
-        if not content_type.startswith("audio/") and "octet-stream" not in content_type:
-            return jsonify({"error": f"that URL did not return audio (Content-Type: {content_type or 'unknown'})"}), 400
-
-        sha256 = blob_storage.store(resp.content)
+        sha256, error = _capture_direct_audio(url)
+        if error:
+            return jsonify(error[0]), error[1]
         return jsonify({"sha256": sha256}), 200
 
     @app.route("/api/enrich/manual-link/filmot", methods=["POST"])
@@ -214,7 +315,8 @@ def register_enrich_routes(app):
         """filmot has no API either — the operator pastes back a YouTube URL
         with a timecode they found via filmot's search, and stabbur downloads
         only a ~4-second audio window around it (not the full video) via
-        yt-dlp, per design.md D3."""
+        yt-dlp, per design.md D3. Thin alias over `_capture_youtube_clip`
+        (origin-scoped-triage-belt design D7)."""
         body = request.get_json(silent=True) or {}
         url = body.get("url")
         if not url:
@@ -228,86 +330,44 @@ def register_enrich_routes(app):
         if timecode is None:
             return jsonify({"error": "could not find a timecode (?t=) in that URL"}), 400
 
-        start = max(0, timecode - 2)
-        end = timecode + 2
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            out_template = os.path.join(tmp_dir, "clip.%(ext)s")
-            cmd = [
-                "yt-dlp",
-                "--no-playlist",
-                # Audio-only, not yt-dlp's default video+audio selection —
-                # we only ever want the sound, so this skips ever needing a
-                # video format at all (discovered live: the default
-                # selection's merge requirement failed with "Requested
-                # format is not available" in a case where an audio-only
-                # stream was actually fine on its own).
-                "-f", "bestaudio/best",
-                # Pin extraction to player clients whose signed URLs
-                # actually work via ffmpeg's own plain HTTP GET (what
-                # --download-sections hands the URL to) — discovered live
-                # that yt-dlp's unrestricted client rotation can surface a
-                # format from a client (e.g. "visionos") whose URL 403s under
-                # ffmpeg even though yt-dlp itself resolved it successfully.
-                # android/web_embedded were the two that worked reliably
-                # across repeated tests; this is the kind of pin that can
-                # need revisiting as YouTube's own client support shifts
-                # (same already-accepted maintenance risk as the yt-dlp
-                # version itself, design.md).
-                "--extractor-args", "youtube:player_client=android,web_embedded",
-                "--download-sections", f"*{start}-{end}",
-                # Cut on exact section boundaries rather than the nearest
-                # keyframe — yt-dlp's own recommendation for
-                # --download-sections, otherwise a short window can silently
-                # grab the wrong (much larger) span.
-                "--force-keyframes-at-cuts",
-                "-x", "--audio-format", "mp3",
-                "-o", out_template,
-            ]
-            # A server-side IP calling YouTube directly (no logged-in
-            # browser session) is routinely flagged with "Sign in to confirm
-            # you're not a bot" regardless of JS-runtime support — yt-dlp's
-            # own documented fix is a cookies file exported from an
-            # authenticated browser session. Optional: most captures won't
-            # need it until/unless YouTube starts flagging this deployment's
-            # IP, at which point setting this env var (no code change) is
-            # the fix, not touching this route again.
-            cookies_file = os.environ.get("YTDLP_COOKIES_FILE")
-            if cookies_file and os.path.exists(cookies_file):
-                # yt-dlp doesn't just read this file, it writes updated
-                # cookies back to it after the session — discovered live as
-                # a crash (`OSError: Read-only file system`) against a
-                # read-only-mounted cookies file. Working off a per-request
-                # copy means --cookies always points at something writable
-                # regardless of how the configured file is mounted, and a
-                # given request can never corrupt the operator's original
-                # exported cookies file.
-                cookies_copy = os.path.join(tmp_dir, "cookies.txt")
-                shutil.copyfile(cookies_file, cookies_copy)
-                cmd += ["--cookies", cookies_copy]
-            cmd.append(url)
-            try:
-                subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-            except subprocess.CalledProcessError as exc:
-                # The bare exit status alone ("returned non-zero exit status
-                # 1") is useless for diagnosing a live failure (expired
-                # signature, YouTube bot-check, a genuinely bad URL, ...) —
-                # surface yt-dlp's own stderr, which names the real cause.
-                detail = (exc.stderr or exc.stdout or "").strip()
-                return jsonify({"error": f"yt-dlp failed: {detail[-1500:] or exc}"}), 502
-            except subprocess.TimeoutExpired as exc:
-                return jsonify({"error": f"yt-dlp timed out: {exc}"}), 502
-
-            clip_path = os.path.join(tmp_dir, "clip.mp3")
-            if not os.path.exists(clip_path):
-                return jsonify({"error": "yt-dlp did not produce an audio clip"}), 502
-            with open(clip_path, "rb") as f:
-                clip_bytes = f.read()
-
-        sha256 = blob_storage.store(clip_bytes)
+        sha256, error = _capture_youtube_clip(url, timecode)
+        if error:
+            return jsonify(error[0]), error[1]
         return jsonify({"sha256": sha256}), 200
+
+    @app.route("/api/enrich/manual-link", methods=["POST"])
+    def post_enrich_manual_link():
+        """origin-scoped-triage-belt design D7: a single paste box that
+        discriminates on the link itself rather than a provider row — the
+        two existing endpoints above are provider-named but already
+        provider-independent internally, so this just picks between the
+        same two helpers based on whether the URL carries a recognised
+        timecode. Neither contacts Forvo or filmot; naming them here would
+        be as misleading as the per-provider routes' own names."""
+        body = request.get_json(silent=True) or {}
+        url = body.get("url")
+        if not url:
+            return jsonify({"error": "url is required"}), 400
+        try:
+            _validate_fetch_url(url)
+        except UnsafeUrlError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        timecode = _parse_youtube_timecode(url)
+        if timecode is not None:
+            sha256, error = _capture_youtube_clip(url, timecode)
+        else:
+            sha256, error = _capture_direct_audio(url)
+            if error is not None and error[1] == 400:
+                # Neither a direct audio response nor a timecode to clip —
+                # this is the "link is neither" case (spec scenario), not a
+                # fetch failure, so it gets its own message rather than
+                # surfacing _capture_direct_audio's content-type complaint.
+                return (
+                    jsonify({"error": "that link is neither a direct audio file nor a video URL carrying a recognised timecode (?t=)"}),
+                    400,
+                )
+        if error:
+            return jsonify(error[0]), error[1]
+        return jsonify({"sha256": sha256}), 200
+

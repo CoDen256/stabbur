@@ -259,6 +259,7 @@ const routes = {
   'new-note': renderNewNote,
   'new-grammar': renderNewGrammar,
   settings: renderSettings,
+  triage: renderTriage,
 };
 
 function parseHash() {
@@ -281,6 +282,7 @@ function showPage(route) {
     'new-note': 'page-new-note',
     'new-grammar': 'page-new-grammar',
     settings: 'page-settings',
+    triage: 'page-triage',
   }[route];
   document.getElementById(pageId).classList.add('active');
 
@@ -1631,6 +1633,13 @@ async function attachAudioToNote(prefix, sha256, providerName, meta) {
     setNewNoteAudioFromSuggest(sha256, providerName, meta);
     return true;
   }
+  if (prefix === 't') {
+    if (!currentTriageNote) return false;
+    triageStagedAudio = { sha256, providerName };
+    renderTriageAudioSection({ ...currentTriageNote, audio_blob: sha256, audio_sel_ms: null });
+    markTriageFieldProvenance('audio', providerName);
+    return true;
+  }
   if (prefix !== 'e' || !currentNote) return false;
   const patch = await api(`/api/notes/${currentNote.id}`, {
     method: 'PATCH',
@@ -1644,6 +1653,44 @@ async function attachAudioToNote(prefix, sha256, providerName, meta) {
   renderAudioSection(currentNote);
   return true;
 }
+
+// ----------------------------------------- generic link-shaped capture ----
+// manual-link-audio-capture design D7: one paste box, independent of any
+// provider row — routes/enrich.py's /api/enrich/manual-link discriminates
+// on the link itself. Shared by the editor's audio sidebar (e) and the
+// triage belt's audio section (t).
+document.querySelectorAll('.link-capture-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const prefix = btn.dataset.linkPrefix;
+    const input = document.getElementById(`${prefix}_link_url`);
+    const status = document.getElementById(`${prefix}_link_status`);
+    const url = input.value.trim();
+    if (!url) return;
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    if (status) status.textContent = '';
+
+    const { status: httpStatus, body } = await api('/api/enrich/manual-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    if (httpStatus !== 200 || !body || !body.sha256) {
+      if (status) status.textContent = (body && body.error) || 'Capture failed.';
+      return;
+    }
+    const attached = await attachAudioToNote(prefix, body.sha256, 'pasted link', null);
+    if (attached) {
+      input.value = '';
+      enrichToast('Audio captured from pasted link');
+    } else if (status) {
+      status.textContent = 'Could not attach the captured audio.';
+    }
+  });
+});
 
 function renderTtsCandidate(prefix) {
   return (c, providerName) => {
@@ -2150,6 +2197,15 @@ async function patchSettingsScalar(updates) {
 // so repeat visits never stack duplicate click listeners on these static
 // controls. renderSettings only ever updates their visual state.
 (function wireSettingsScalarControls() {
+  const prefillSeg = document.getElementById('settingsPrefillTimingSeg');
+  prefillSeg.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      prefillSeg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      patchSettingsScalar({ prefill_timing: btn.dataset.value });
+    });
+  });
+
   const seg = document.getElementById('settingsMergeModeSeg');
   seg.querySelectorAll('button').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -2197,4 +2253,429 @@ async function renderSettings() {
   });
   document.getElementById('settingsDefaultLangsInput').value = (body.default_target_langs || []).join(', ');
   document.getElementById('settingsOverridePrefillSwitch').setAttribute('aria-pressed', body.override_prefill ? 'true' : 'false');
+
+  document.querySelectorAll('#settingsPrefillTimingSeg button').forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.value === body.prefill_timing ? 'true' : 'false');
+  });
+}
+
+// ------------------------------------------------------------ note-triage --
+// origin-scoped-triage-belt: a queue of drafted notes reviewed one at a
+// time, scoped to exactly one origin (design D1/D2). Reuses the editor's
+// field components under the `t_` prefix (translations/inflections/
+// suggest-panel machinery are already generic over `prefix`) so the two
+// surfaces can't drift (tasks 3.6).
+
+const TRIAGE_ORIGIN_STORAGE_KEY = 'stabbur_triage_origin';
+let currentTriageNote = null;
+let triageQueue = [];
+let triageIndex = 0;
+let triageDeferredCount = 0;
+// Audio (unlike every other field) normally attaches with an immediate
+// PATCH (attachAudioToNote's 'e' path) — staged here instead, so "skip"
+// genuinely saves nothing (design D8) and a verdict is what actually
+// commits it, same as every other field's edits.
+let triageStagedAudio = null;
+
+function triageOrigin() {
+  return document.getElementById('triageOriginSelect').value;
+}
+
+document.getElementById('triageOriginSelect').addEventListener('change', () => {
+  localStorage.setItem(TRIAGE_ORIGIN_STORAGE_KEY, triageOrigin());
+  loadTriageQueue();
+});
+
+async function refreshTriageRailBadge() {
+  const { status, body } = await api('/api/notes/authoring/counts?status=draft');
+  const badge = document.getElementById('triageRailBadge');
+  if (status !== 200) { badge.style.display = 'none'; return; }
+  const total = Object.values(body).reduce((a, b) => a + b, 0);
+  badge.textContent = String(total);
+  badge.style.display = total > 0 ? '' : 'none';
+}
+refreshTriageRailBadge();
+
+async function renderTriage() {
+  const saved = localStorage.getItem(TRIAGE_ORIGIN_STORAGE_KEY);
+  if (saved) document.getElementById('triageOriginSelect').value = saved;
+  await loadTriageQueue();
+}
+
+async function loadTriageQueue() {
+  triageDeferredCount = 0;
+  const origin = triageOrigin();
+  const { status, body } = await api(`/api/notes/authoring${qs({ status: 'draft', origin, sort: 'updated_asc' })}`);
+  triageQueue = status === 200 ? body : [];
+  triageIndex = 0;
+  refreshTriageRailBadge();
+  updateTriageBelt();
+  await showTriageNote();
+}
+
+function updateTriageBelt() {
+  const total = triageQueue.length;
+  const remaining = Math.max(0, total - triageIndex);
+  document.getElementById('triageCount').innerHTML = `${remaining} <small>/ ${total}</small>`;
+  const deferredPill = document.getElementById('triageDeferredPill');
+  if (triageDeferredCount > 0) {
+    deferredPill.style.display = '';
+    deferredPill.textContent = `${triageDeferredCount} sent back`;
+  } else {
+    deferredPill.style.display = 'none';
+  }
+}
+
+function triageProvenanceSrcId(fieldKey) {
+  return { transcription: 't_transcription_src', translations: 't_translations_src', inflections: 't_inflections_src', context_text: 't_context_text_src', audio: 't_audio_src' }[fieldKey];
+}
+
+function markTriageFieldProvenance(fieldKey, provider) {
+  const el = document.getElementById(triageProvenanceSrcId(fieldKey));
+  if (!el) return;
+  el.textContent = provider;
+  el.style.display = '';
+}
+
+function clearTriageProvenanceBadges() {
+  ['transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
+    const el = document.getElementById(triageProvenanceSrcId(key));
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+  });
+}
+
+// Prefill fills gaps, never opinions (design D5) — but once the operator
+// has typed into a field themselves, its provenance badge no longer
+// describes what's actually there, so an edit clears it rather than
+// leaving a stale attribution ("not attributed to any provider").
+document.getElementById('triageForm').addEventListener('input', (e) => {
+  syncSuggestQueries('t');
+  const fieldKey = {
+    t_transcription: 'transcription', t_context_text: 'context_text',
+  }[e.target.id];
+  if (fieldKey) {
+    const el = document.getElementById(triageProvenanceSrcId(fieldKey));
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+  }
+  if (e.target.closest('#t_translations_list')) {
+    const el = document.getElementById('t_translations_src');
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+  }
+  if (e.target.closest('#t_inflections_fields')) {
+    const el = document.getElementById('t_inflections_src');
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+  }
+});
+
+function renderTriageAudioSection(note) {
+  const none = document.getElementById('t_audio_none');
+  const player = document.getElementById('t_audio_player');
+  if (!note.audio_blob) {
+    none.style.display = 'block';
+    player.style.display = 'none';
+    return;
+  }
+  none.style.display = 'none';
+  player.style.display = 'block';
+  document.getElementById('t_audioElement').src = `${API_BASE}/blob/${note.audio_blob}`;
+  const sel = note.audio_sel_ms;
+  document.getElementById('t_audio_sel_note').textContent =
+    sel && sel.length === 2 ? `trim ${(sel[0] / 1000).toFixed(2)} – ${(sel[1] / 1000).toFixed(2)} s (adjust in the editor)` : '';
+}
+
+async function showTriageNote() {
+  const empty = document.getElementById('triageEmpty');
+  const cardWrap = document.getElementById('triageCardWrap');
+  const verdictBar = document.getElementById('triageVerdictBar');
+
+  if (triageIndex >= triageQueue.length) {
+    currentTriageNote = null;
+    empty.style.display = 'block';
+    cardWrap.style.display = 'none';
+    verdictBar.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  cardWrap.style.display = 'block';
+  verdictBar.style.display = 'block';
+
+  const note = triageQueue[triageIndex];
+  currentTriageNote = note;
+  triageStagedAudio = null;
+
+  document.getElementById('triageHeadword').textContent = note.text;
+  document.getElementById('triageMeta').innerHTML =
+    `${escapeHtml(note.type)} · ${escapeHtml(note.pos || '—')} · ${originLabel(note)} · seq ${note.seq}`;
+
+  document.getElementById('t_text').value = note.text || '';
+  document.getElementById('t_lemma').value = note.lemma || '';
+  document.getElementById('t_type').value = note.type;
+  setPosValue('t_pos_select', 't_pos_custom', note.pos);
+  document.getElementById('t_source_lang').value = note.source_lang || '';
+  document.getElementById('t_transcription').value = note.transcription || '';
+  renderTranslationRows('t_translations_list', note.translations, null);
+  document.getElementById('t_context_text').value = note.context_text || '';
+  await populateGrammarRuleSelect(document.getElementById('t_grammar_rule_id'), note.grammar_rule_id);
+
+  updateTriageInflectionFields(note.pos, note.inflections);
+  updateTriageFieldVisibility();
+  resetSuggestQueries('t'); // closes and empties every suggest panel (tasks 3.5/5.7/7.10)
+  clearTriageProvenanceBadges();
+  renderTriageAudioSection(note);
+
+  const settings = await fetchSettings();
+  if ((settings.prefill_timing || 'on_open') === 'on_open') runTriagePrefill();
+}
+
+function updateTriageInflectionFields(pos, values) {
+  const shapedPos = INFLECTION_SHAPES[pos] ? pos : null;
+  document.getElementById('t_inflections_field').style.display = shapedPos ? 'block' : 'none';
+  if (shapedPos) renderInflectionFields('t_inflections_fields', shapedPos, values);
+  else document.getElementById('t_inflections_fields').innerHTML = '';
+}
+
+function updateTriageFieldVisibility() {
+  const type = document.getElementById('t_type').value;
+  document.getElementById('t_grammar_rule_field').style.display = type === 'grammar' ? 'block' : 'none';
+  applyTypeFieldVisibility('t', type);
+}
+
+document.getElementById('t_type').addEventListener('change', updateTriageFieldVisibility);
+wirePosCustomToggle('t_pos_select', 't_pos_custom', () => {
+  const pos = getPosValue('t_pos_select', 't_pos_custom');
+  updateTriageInflectionFields(pos, currentTriageNote && currentTriageNote.pos === pos ? currentTriageNote.inflections : null);
+});
+document.getElementById('t_add_translation').addEventListener('click', () => {
+  addTranslationRow('t_translations_list', '', '', null);
+});
+wireLemmaTextSync('t');
+
+function readTriageForm() {
+  const pos = getPosValue('t_pos_select', 't_pos_custom');
+  const shapedPos = INFLECTION_SHAPES[pos] ? pos : null;
+  const inflections = shapedPos ? readInflectionFields('t_inflections_fields') : (currentTriageNote?.inflections ?? {});
+  return {
+    text: document.getElementById('t_text').value,
+    lemma: document.getElementById('t_lemma').value || null,
+    type: document.getElementById('t_type').value,
+    pos,
+    source_lang: document.getElementById('t_source_lang').value,
+    transcription: document.getElementById('t_transcription').value || null,
+    translations: readTranslationRows('t_translations_list'),
+    inflections,
+    context_text: document.getElementById('t_context_text').value || null,
+    grammar_rule_id: document.getElementById('t_grammar_rule_id').value
+      ? Number(document.getElementById('t_grammar_rule_id').value)
+      : null,
+    ...(triageStagedAudio ? { audio_blob: triageStagedAudio.sha256, audio_sel_ms: null } : {}),
+  };
+}
+
+// ── verdicts (design D8: accept is the only path to `ready`) ─────────────
+
+async function saveTriageEdits() {
+  if (!currentTriageNote) return null;
+  const { status, body } = await api(`/api/notes/${currentTriageNote.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(readTriageForm()),
+  });
+  return status === 200 ? body : null;
+}
+
+function advanceTriageIndex() {
+  triageIndex += 1;
+  updateTriageBelt();
+  showTriageNote();
+}
+
+document.getElementById('triageAcceptBtn').addEventListener('click', async () => {
+  if (!currentTriageNote) return;
+  const payload = readTriageForm();
+  payload.status = 'ready';
+  const { status } = await api(`/api/notes/${currentTriageNote.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (status === 200) { advanceTriageIndex(); refreshTriageRailBadge(); }
+});
+
+document.getElementById('triageSendBackBtn').addEventListener('click', async () => {
+  if (!currentTriageNote) return;
+  const saved = await saveTriageEdits();
+  if (!saved) return;
+  triageDeferredCount += 1;
+  // design D3: deferral is just a save, so the note sorts last under
+  // `updated_asc` — moved to the end of the in-memory queue too, so it
+  // reads as deferred within this pass, not only after a reload.
+  triageQueue.splice(triageIndex, 1);
+  triageQueue.push(saved);
+  updateTriageBelt();
+  await showTriageNote();
+});
+
+document.getElementById('triageSkipBtn').addEventListener('click', () => {
+  if (!currentTriageNote) return;
+  advanceTriageIndex();
+});
+
+document.getElementById('triageDeleteBtn').addEventListener('click', async () => {
+  if (!currentTriageNote) return;
+  if (!confirm(`Delete "${currentTriageNote.text}"? Every note in this queue is a draft, so this is a hard delete.`)) return;
+  const { status } = await api(`/api/notes/${currentTriageNote.id}`, { method: 'DELETE' });
+  if (status === 204 || status === 200) { advanceTriageIndex(); refreshTriageRailBadge(); }
+});
+
+document.getElementById('triagePrefillBtn').addEventListener('click', () => runTriagePrefill());
+
+document.getElementById('t_upload_audio_btn').addEventListener('click', async () => {
+  if (!currentTriageNote) return;
+  const fileInput = document.getElementById('t_audio_file');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const btn = document.getElementById('t_upload_audio_btn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  const form = new FormData();
+  form.append('audio', file);
+  const uploadResp = await fetch(`${API_BASE}/blobs`, { method: 'POST', headers: authHeaders(), body: form });
+  const uploadBody = await uploadResp.json();
+  btn.disabled = false;
+  btn.textContent = originalLabel;
+  if (uploadResp.status !== 200) { enrichToast('Upload failed'); return; }
+  fileInput.value = '';
+  await attachAudioToNote('t', uploadBody.sha256, 'manual upload', file.name);
+});
+
+// Place delete away from accept in the key layout (design Risks/task 4.6):
+// ⌫/Delete at one end, ⏎ accept at the other, with send-to-back/skip
+// between them. Suppressed while focus is in any form control, so typing
+// in a field never fires a verdict by accident.
+document.addEventListener('keydown', (e) => {
+  if (parseHash().route !== 'triage' || !currentTriageNote) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('triageAcceptBtn').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('triageSkipBtn').click(); }
+  else if (e.key.toLowerCase() === 'l') { e.preventDefault(); document.getElementById('triageSendBackBtn').click(); }
+  else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); document.getElementById('triageDeleteBtn').click(); }
+});
+
+// ── prefill: N ordinary pass-through lookups, walking the operator's
+// configured provider order client-side (design D4 — routes/enrich.py
+// gains no chain logic of its own) ────────────────────────────────────────
+
+async function walkProviders(kind, prefix, queryValue, lang, limit) {
+  const settings = await fetchSettings();
+  const info = (settings.providers && settings.providers[kind]) || {};
+  const disabled = new Set(info.disabled || []);
+  const providers = (info.order || []).filter((p) => !disabled.has(p));
+  for (const provider of providers) {
+    const fields = enrichRequestFields(kind, prefix, queryValue, lang, limit);
+    const { status, body } = await enrichLookup(kind, provider, fields, false);
+    if (status !== 200 || !body) continue;
+    if (kind === 'ipa' && body.mode === 'per_word') {
+      if (body.joined) return { provider, value: body.joined };
+      continue;
+    }
+    if (Array.isArray(body.candidates) && body.candidates.length > 0) {
+      return { provider, candidate: body.candidates[0] };
+    }
+  }
+  return null;
+}
+
+async function runTriagePrefill() {
+  if (!currentTriageNote) return;
+  const settings = await fetchSettings();
+  const sourceLang = smiaLangCode(document.getElementById('t_source_lang').value);
+  let filledCount = 0;
+
+  const transcriptionEl = document.getElementById('t_transcription');
+  if (!transcriptionEl.value.trim()) {
+    const query = defaultSuggestQuery('t', 'ipa');
+    if (query) {
+      const result = await walkProviders('ipa', 't', query, sourceLang);
+      const value = result && (result.value || (result.candidate && (result.candidate.ipa || result.candidate.phonemic || result.candidate.phonetic)));
+      if (value) {
+        transcriptionEl.value = value;
+        markTriageFieldProvenance('transcription', result.provider);
+        filledCount += 1;
+      }
+    }
+  }
+
+  const existingLangs = new Set(readTranslationRows('t_translations_list').map((t) => t.lang.toLowerCase()));
+  const targetLangs = (settings.default_target_langs && settings.default_target_langs.length) ? settings.default_target_langs : SUGGEST_DEFAULT_LANGS;
+  const translationsQuery = defaultSuggestQuery('t', 'translations');
+  if (translationsQuery) {
+    for (const lang of targetLangs) {
+      if (existingLangs.has(lang.toLowerCase())) continue;
+      const result = await walkProviders('translations', 't', translationsQuery, lang);
+      if (result && result.candidate && result.candidate.text) {
+        addTranslationRow('t_translations_list', lang, result.candidate.text, null);
+        markTriageFieldProvenance('translations', result.provider);
+        filledCount += 1;
+      }
+    }
+  }
+
+  const pos = getPosValue('t_pos_select', 't_pos_custom');
+  if (INFLECTION_SHAPES[pos]) {
+    const lemma = document.getElementById('t_lemma').value.trim();
+    if (lemma) {
+      const result = await walkProviders('inflections', 't', lemma);
+      if (result && result.candidate && result.candidate.paradigm) {
+        const current = readInflectionFields('t_inflections_fields');
+        let any = false;
+        INFLECTION_SHAPES[pos].forEach((field) => {
+          if (!current[field] && result.candidate.paradigm[field]) {
+            const input = document.querySelector(`#t_inflections_fields [data-inflection-field="${field}"]`);
+            if (input) { input.value = result.candidate.paradigm[field]; any = true; }
+          }
+        });
+        if (any) { markTriageFieldProvenance('inflections', result.provider); filledCount += 1; }
+      }
+    }
+  }
+
+  const ctxEl = document.getElementById('t_context_text');
+  if (!ctxEl.value.trim()) {
+    const exQuery = defaultSuggestQuery('t', 'examples');
+    if (exQuery) {
+      const result = await walkProviders('examples', 't', exQuery, undefined, examplesLimitValue('t'));
+      if (result && result.candidate && result.candidate.text) {
+        ctxEl.value = result.candidate.text;
+        markTriageFieldProvenance('context_text', result.provider);
+        filledCount += 1;
+      }
+    }
+  }
+
+  // Audio: only a real candidate (sha256 present) auto-attaches — a
+  // manual-link provider's empty-candidates-plus-url answer is exactly the
+  // "has no entry" case the walk is defined to fall through on, never
+  // something to surface here (settings page's own note on this).
+  if (currentTriageNote && !currentTriageNote.audio_blob) {
+    const audioQuery = defaultSuggestQuery('t', 'tts');
+    if (audioQuery) {
+      const result = await walkProviders('tts', 't', audioQuery, sourceLang);
+      if (result && result.candidate && result.candidate.sha256) {
+        const fetched = await api('/api/enrich/tts/use', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sha256: result.candidate.sha256 }),
+        });
+        if (fetched.status === 200) {
+          const attached = await attachAudioToNote('t', fetched.body.sha256, result.provider, null);
+          if (attached) { markTriageFieldProvenance('audio', result.provider); filledCount += 1; }
+        }
+      }
+    }
+  }
+
+  syncSuggestQueries('t');
+  if (filledCount > 0) enrichToast(`Prefilled ${filledCount} field${filledCount === 1 ? '' : 's'}`);
 }

@@ -130,6 +130,9 @@ class Note(Base):
 
 
 SETTINGS_TRANSLATION_MERGE_MODES = ("append", "separate")
+# note-triage design D6: whether prefill runs the moment a triage note is
+# presented, or only when the operator presses the fill control.
+SETTINGS_PREFILL_TIMINGS = ("on_open", "on_demand")
 
 
 class Settings(Base):
@@ -151,6 +154,10 @@ class Settings(Base):
             f"translation_merge_mode IS NULL OR translation_merge_mode IN {SETTINGS_TRANSLATION_MERGE_MODES!r}",
             name="ck_settings_merge_mode",
         ),
+        CheckConstraint(
+            f"prefill_timing IS NULL OR prefill_timing IN {SETTINGS_PREFILL_TIMINGS!r}",
+            name="ck_settings_prefill_timing",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
@@ -161,3 +168,4 @@ class Settings(Base):
     translation_merge_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     override_prefill: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     default_target_langs: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    prefill_timing: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -514,6 +514,57 @@ pre.json {
 }
 
 .inline-note { font-size: 12.5px; color: var(--text-faint); margin-top: 6px; }
+
+/* ------------------------------------------------------------- triage --- */
+.rail a .badge {
+  margin-left: auto; font-family: ui-monospace, monospace; font-size: 10.5px;
+  background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 6px;
+}
+.rail a { display: flex; align-items: center; gap: 7px; }
+
+.belt {
+  display: flex; align-items: center; gap: 16px;
+  padding: 13px 16px; margin-bottom: 18px;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  flex-wrap: wrap;
+}
+.belt-counts .n {
+  font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+  font-size: 21px; font-weight: 650; line-height: 1; letter-spacing: -.02em;
+}
+.belt-counts .n small { color: var(--text-faint); font-size: 13px; font-weight: 400; }
+.belt-right { margin-left: auto; }
+
+/* where a prefilled value came from — provenance, not judgement */
+.src {
+  font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-faint);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.src::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); opacity: .7; }
+
+kbd {
+  font-family: ui-monospace, monospace; font-size: 10.5px; line-height: 1;
+  padding: 3px 5px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text-dim);
+}
+.btn-primary kbd { background: rgba(255,255,255,.17); border-color: rgba(255,255,255,.3); color: #fff; }
+
+.verdict-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 15;
+  background: var(--bg-elevated); border-top: 1px solid var(--border);
+  padding: 11px 20px;
+}
+.verdict-bar-inner {
+  margin-left: 180px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+@media (max-width: 760px) { .verdict-bar-inner { margin-left: 0; } }
+
+.linkbox {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  background: var(--bg-sunken); border: 1px dashed var(--border);
+  border-radius: var(--radius); padding: 9px 10px;
+}
+.linkbox input { flex: 1; min-width: 160px; }
 .warning {
   margin-top: 0.75rem;
   padding: 0.5rem 0.75rem;

@@ -16,7 +16,9 @@ import smia_client
 from db.session import session_scope
 from routes.enrich import ENRICHABLE_KINDS
 
-ALLOWED_SETTINGS_KEYS = {"translation_merge_mode", "override_prefill", "default_target_langs", "providers"}
+ALLOWED_SETTINGS_KEYS = {
+    "translation_merge_mode", "override_prefill", "default_target_langs", "providers", "prefill_timing",
+}
 
 
 def _fetch_catalogue() -> dict:
@@ -49,6 +51,9 @@ def _validate_patch_body(body: dict) -> str | None:
 
     if "override_prefill" in body and not isinstance(body["override_prefill"], bool):
         return "override_prefill must be a boolean"
+
+    if "prefill_timing" in body and body["prefill_timing"] not in settings_store.PREFILL_TIMINGS:
+        return f"prefill_timing must be one of {settings_store.PREFILL_TIMINGS}"
 
     if "default_target_langs" in body:
         langs = body["default_target_langs"]
