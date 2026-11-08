@@ -105,6 +105,22 @@ def build_signature(text: str, lemma_map: dict[str, str]) -> tuple[str, tuple[st
     return (head_lemma, tuple(particles), reflexive, complements)
 
 
+def surface_tokens(text: str) -> tuple[str, ...]:
+    """The candidate's own cleaned surface tokens, in order, after stripping
+    the infinitive marker and a leading indefinite article the same way
+    `build_signature` does — but *not* split into head/particles/complements.
+
+    Used by D13 attestation matching (judge.py): a multiword candidate is
+    known only if this exact token sequence is itself a member of
+    `stock.build_known_ngrams`'s output, and a single-word candidate's own
+    token (after lemma resolution) is checked against `KNOWN_TOKENS`."""
+    if not text or not text.strip():
+        return ()
+    stripped = _INFINITIVE_MARKER_RE.sub("", text.strip())
+    stripped = _INDEF_ARTICLE_RE.sub("", stripped)
+    return tuple(_clean_token(tok) for tok in stripped.split() if _clean_token(tok))
+
+
 def signature_key(signature: tuple) -> str:
     """A stable string form of a signature, for use as a SQL grouping/join
     key (`signature.signature_key`, `verdict.signature_key`, ...)."""

@@ -67,55 +67,55 @@
 
 ## 4b. Known-set rebuild under D13 (attestation)
 
-- [ ] 4b.1 **Delete, do not fix**, `stock.py`'s `_EXCLUDED_PROSE_DECKS`, `_ALWAYS_MINE_E_DECKS`, the `A`-field role logic and every per-deck special case. D13 requires no knowledge of card structure; leaving any of it in place reintroduces the bug family that produced corrections 1-7. Keep only the `C2*` exclusion (stabbur's own seed) from task 4.1.
-- [ ] 4b.2 Build the Norwegian lexicon from the **import sources' own** Norwegian fields (`normalized.text`, ~8,026 tokens). The stock bundle contributes nothing to this lexicon — that direction of dependency is what makes the language test independent of stock's structure.
-- [ ] 4b.3 Line extraction from stock: split on `<br>` only; **remove** inline tags (`<b>`, `<span>`, …) rather than splitting on them. This is load-bearing — splitting fragments English prose into 1-word pieces, and a lone `and` then scores 100% Norwegian because *duck* is in the lexicon. Measured: 4,584 of 6,438 "Norwegian" segments came out 1-2 words under the wrong handling.
-- [ ] 4b.4 Per-line language score (D13.1): Norwegian when lexicon share is high and English-stopword share is low; lines under 3 words require unanimity. Assert the leakage ceiling on the resulting token set — `the` 0, `is` ≤2, `that` 0, `and` ≤4, `man` ≤7, `a` ≤39.
-- [ ] 4b.5 `KNOWN_TOKENS` = every token of every Norwegian line, **closed expansively over inflection** (D13.3): if any form attests a lemma, every form of that lemma is known. This inverts how D4's form→lemma map was used — it previously narrowed matching and must now widen it.
-- [ ] 4b.6 `KNOWN_NGRAMS` = every contiguous word sequence of every Norwegian line, length 2..line length, **no upper cap** (D13.2). The operator's rule covers full sentences and every subset of them; stock's Norwegian text (~3,154 lines) makes this cheap.
-- [ ] 4b.7 Rewrite `judge`: skip iff (single-word → lemma in `KNOWN_TOKENS`) or (multiword → surface sequence in `KNOWN_NGRAMS`). Nothing else may skip. Keep the explicit structural test that no substring/prefix/head-only/token-subset comparison exists in the skip path.
-- [ ] 4b.8 Move the deny-list **after** the known-set check (D13.4) — it vetoes weak evidence only and must never override attestation. Verify the 11 entries stock teaches directly (`i`, `to`, `det`, `den`, `er`, `om`, `så`, `men`, `over`, `under`, `for`) now skip, and the 6 it does not (`and`, `man`, `form`, `that`, `a`, `us`) still import.
-- [ ] 4b.9 Replace 4.7's regression list. Must **skip**: `legge til`, `legge seg`, `legge merke til`, `legge til noen i kopi`, `bli kvitt`, `bekymre seg`, `bestemme seg`, `bli med`, `regne ut`, `allerede`, plus every word from the operator's report — `bare`, `bil`, `bo`, `by`, `den`, `der`, `det`, `hvor`, `i`, `jente`, `men`, `over`, `tirsdag`, `spise`, `vei`, `vente`, `vil`, `koselig`, `to`. Must **import**: `legge an`, `legge om`, `legge ved`, `gi opp`, `dø ut`, `bytte ut`, `låne ut`, `finne fram`, `bli klar over`, `bli lei av`, `aleneforsørger`, `and`, `man`, `form`.
-- [ ] 4b.10 Assert the subset rule directly: stock's `Vi bor der` makes `vi`, `bor`, `der`, `vi bor`, `bor der`, `vi bor der` all known, and `bo`/`bodde`/`har bodd` known via 4b.5's closure.
-- [ ] 4b.11 Sentence candidates are **not** force-imported any more. The `sentence-shaped` rule is removed from the skip path — a1_31k's 1,473 sentence candidates are attestation-checked like everything else (23 of them are attested and must skip). `type=listening` routing (task 3.8) is unaffected; this is only about the verdict.
-- [ ] 4b.12 **Before switching**: 96 signatures skip today via `exact-match` but are **not** attested under D13. Inspect them and record whether they are genuine finds the old extractor got right (→ D13 needs widening) or artifacts of it (→ expected loss). Do not switch over without this written down — it is the one place D13 could be *worse* than what it replaces.
-- [ ] 4b.13 Re-run `key` + `judge` only. `ingest` and `normalize` (15,262 rows) are unaffected, and `decision` must be untouched — this is the payoff of D2/task 1.3 and is the check that those decisions were implemented correctly.
-- [ ] 4b.14 Expected funnel after the switch: skip 1,235 → ~1,683 of 9,009 distinct signatures (13.7% → 18.7%), review queue 7,774 → ~7,326. **Do not judge the fix by this delta** — the 73 signatures from the deck-exclusion bug alone are ~1% of the total but are the most elementary words in the language. Judge it by 4b.9 and by re-reading the skipped set (4.8's procedure, which remains in force).
+- [x] 4b.1 **Delete, do not fix**, `stock.py`'s `_EXCLUDED_PROSE_DECKS`, `_ALWAYS_MINE_E_DECKS`, the `A`-field role logic and every per-deck special case. D13 requires no knowledge of card structure; leaving any of it in place reintroduces the bug family that produced corrections 1-7. Keep only the `C2*` exclusion (stabbur's own seed) from task 4.1.
+- [x] 4b.2 Build the Norwegian lexicon from the **import sources' own** Norwegian fields (`normalized.text`, ~8,026 tokens). The stock bundle contributes nothing to this lexicon — that direction of dependency is what makes the language test independent of stock's structure.
+- [x] 4b.3 Line extraction from stock: split on `<br>` only; **remove** inline tags (`<b>`, `<span>`, …) rather than splitting on them. This is load-bearing — splitting fragments English prose into 1-word pieces, and a lone `and` then scores 100% Norwegian because *duck* is in the lexicon. Measured: 4,584 of 6,438 "Norwegian" segments came out 1-2 words under the wrong handling.
+- [x] 4b.4 Per-line language score (D13.1): Norwegian when lexicon share is high and English-stopword share is low; lines under 3 words require unanimity. Assert the leakage ceiling on the resulting token set — `the` 0, `is` ≤2, `that` 0, `and` ≤4, `man` ≤7, `a` ≤39.
+- [x] 4b.5 `KNOWN_TOKENS` = every token of every Norwegian line, **closed expansively over inflection** (D13.3): if any form attests a lemma, every form of that lemma is known. This inverts how D4's form→lemma map was used — it previously narrowed matching and must now widen it.
+- [x] 4b.6 `KNOWN_NGRAMS` = every contiguous word sequence of every Norwegian line, length 2..line length, **no upper cap** (D13.2). The operator's rule covers full sentences and every subset of them; stock's Norwegian text (~3,154 lines) makes this cheap.
+- [x] 4b.7 Rewrite `judge`: skip iff (single-word → lemma in `KNOWN_TOKENS`) or (multiword → surface sequence in `KNOWN_NGRAMS`). Nothing else may skip. Keep the explicit structural test that no substring/prefix/head-only/token-subset comparison exists in the skip path.
+- [x] 4b.8 Move the deny-list **after** the known-set check (D13.4) — it vetoes weak evidence only and must never override attestation. Verify the 11 entries stock teaches directly (`i`, `to`, `det`, `den`, `er`, `om`, `så`, `men`, `over`, `under`, `for`) now skip, and the 6 it does not (`and`, `man`, `form`, `that`, `a`, `us`) still import.
+- [x] 4b.9 Replace 4.7's regression list. Must **skip**: `legge til`, `legge seg`, `legge merke til`, `legge til noen i kopi`, `bli kvitt`, `bekymre seg`, `bestemme seg`, `bli med`, `regne ut`, `allerede`, plus every word from the operator's report — `bare`, `bil`, `bo`, `by`, `den`, `der`, `det`, `hvor`, `i`, `jente`, `men`, `over`, `tirsdag`, `spise`, `vei`, `vente`, `vil`, `koselig`, `to`. Must **import**: `legge an`, `legge om`, `legge ved`, `gi opp`, `dø ut`, `bytte ut`, `låne ut`, `finne fram`, `bli klar over`, `bli lei av`, `aleneforsørger`, `and`, `man`, `form`.
+- [x] 4b.10 Assert the subset rule directly: stock's `Vi bor der` makes `vi`, `bor`, `der`, `vi bor`, `bor der`, `vi bor der` all known, and `bo`/`bodde`/`har bodd` known via 4b.5's closure.
+- [x] 4b.11 Sentence candidates are **not** force-imported any more. The `sentence-shaped` rule is removed from the skip path — a1_31k's 1,473 sentence candidates are attestation-checked like everything else (23 of them are attested and must skip). `type=listening` routing (task 3.8) is unaffected; this is only about the verdict.
+- [x] 4b.12 **Before switching**: 96 signatures skip today via `exact-match` but are **not** attested under D13. Inspect them and record whether they are genuine finds the old extractor got right (→ D13 needs widening) or artifacts of it (→ expected loss). Do not switch over without this written down — it is the one place D13 could be *worse* than what it replaces.
+- [x] 4b.13 Re-run `key` + `judge` only. `ingest` and `normalize` (15,262 rows) are unaffected, and `decision` must be untouched — this is the payoff of D2/task 1.3 and is the check that those decisions were implemented correctly.
+- [x] 4b.14 Expected funnel after the switch: skip 1,235 → ~1,683 of 9,009 distinct signatures (13.7% → 18.7%), review queue 7,774 → ~7,326. **Do not judge the fix by this delta** — the 73 signatures from the deck-exclusion bug alone are ~1% of the total but are the most elementary words in the language. Judge it by 4b.9 and by re-reading the skipped set (4.8's procedure, which remains in force).
 
 ## 5. Merge
 
-- [ ] 5.1 Group `normalized` by lexeme signature; one `candidate` per group (design D8). The signature keeps this merge role under D13 — only its *skip* role is superseded.
-- [ ] 5.2 Field-level priority `NTNU > A1 > core6k > freq6k > CSV`; highest-priority non-empty value wins. No averaging, concatenation or voting.
-- [ ] 5.3 Retain losing non-empty values on the candidate and flag it conflicted — do not discard them.
-- [ ] 5.4 Verify against the measured overlap (2,510 lexemes in exactly 2 sources, 733 in 3, 423 in all 4) that merging is happening rather than silently producing duplicates.
-- [ ] 5.5 Review ordering key (design D7): freq6k `Frequency index` → `CEFR::*` tag → CSV chapter/section. Candidates with no signal sort last.
+- [x] 5.1 Group `normalized` by lexeme signature; one `candidate` per group (design D8). The signature keeps this merge role under D13 — only its *skip* role is superseded.
+- [x] 5.2 Field-level priority `NTNU > A1 > core6k > freq6k > CSV`; highest-priority non-empty value wins. No averaging, concatenation or voting.
+- [x] 5.3 Retain losing non-empty values on the candidate and flag it conflicted — do not discard them.
+- [x] 5.4 Verify against the measured overlap (2,510 lexemes in exactly 2 sources, 733 in 3, 423 in all 4) that merging is happening rather than silently producing duplicates.
+- [x] 5.5 Review ordering key (design D7): freq6k `Frequency index` → `CEFR::*` tag → CSV chapter/section. Candidates with no signal sort last.
 
 ## 6. Review
 
-- [ ] 6.1 Review interface over the candidate store, ordered by 5.5, with accept / reject / edit per candidate. Local only — this is deliberately not in the stabbur UI (design D1).
-- [ ] 6.2 Each candidate shows: merged fields, source attribution per field, conflicts, verdict + evidence, the stock relative when flagged by 4.6, and whether human audio is attached.
-- [ ] 6.3 Decisions write only to `decision` (task 1.3), so re-running `judge`/`merge` preserves them.
-- [ ] 6.4 Resumable: reopening review returns to the queue position, with counts of reviewed/remaining.
+- [x] 6.1 Review interface over the candidate store, ordered by 5.5, with accept / reject / edit per candidate. Local only — this is deliberately not in the stabbur UI (design D1).
+- [x] 6.2 Each candidate shows: merged fields, source attribution per field, conflicts, verdict + evidence, the stock relative when flagged by 4.6, and whether human audio is attached.
+- [x] 6.3 Decisions write only to `decision` (task 1.3), so re-running `judge`/`merge` preserves them.
+- [x] 6.4 Resumable: reopening review returns to the queue position, with counts of reviewed/remaining.
 
 ## 7. Push
 
-- [ ] 7.1 Audio upload first: NTNU (646) + A1 (2,924) only. **Reject core6k `hypertts-*` and freq6k `ordpar-*` entirely** (design D10). Upload as `blob/<sha256>` via the existing blob endpoint; identical recordings across sources collapse to one blob.
-- [ ] 7.2 `POST /api/notes` per accepted candidate with `status=draft`, `origin=import`, `import_ref={source, source_note_id, run_id}`. **Never `status=ready`**, under any flag or option.
-- [ ] 7.3 Store the returned note id on the candidate; skip candidates that already have one (design D12 — makes push resumable and the import reversible).
-- [ ] 7.4 Rate limiting is explicitly not implemented — no provider is called. If a local throttle against stabbur's own API proves necessary, that is an operational detail, not this change's requirement.
+- [x] 7.1 Audio upload first: NTNU (646) + A1 (2,924) only. **Reject core6k `hypertts-*` and freq6k `ordpar-*` entirely** (design D10). Upload as `blob/<sha256>` via the existing blob endpoint; identical recordings across sources collapse to one blob.
+- [x] 7.2 `POST /api/notes` per accepted candidate with `status=draft`, `origin=import`, `import_ref={source, source_note_id, run_id}`. **Never `status=ready`**, under any flag or option.
+- [x] 7.3 Store the returned note id on the candidate; skip candidates that already have one (design D12 — makes push resumable and the import reversible).
+- [x] 7.4 Rate limiting is explicitly not implemented — no provider is called. If a local throttle against stabbur's own API proves necessary, that is an operational detail, not this change's requirement.
 
 ## 8. Verification
 
-- [ ] 8.1 Dry-run the full pipeline through `merge` with no push; confirm the funnel against design D6's measured figures (~1,563 auto-skip, ~7,566 import) and investigate any material divergence rather than accepting it.
-- [ ] 8.2 Push a small accepted subset (≤20) to a throwaway stabbur database; verify `origin`, `import_ref`, `status=draft`, audio blob resolution, and that the notes are filterable by `origin=import` in the notes browser.
-- [ ] 8.3 Interrupt a push mid-run and re-run it; verify no duplicate notes are created.
-- [ ] 8.4 Re-run `judge` after editing the deny-list; verify review decisions survive and only verdicts change.
-- [ ] 8.5 Confirm no `type=grammar` note and no `grammar_rule` row is created by any stage (design D9).
-- [ ] 8.6 Confirm the tool makes no smia request and no outbound network call other than to stabbur's own API.
-- [ ] 8.7 Record in the design the actual final counts (imported, skipped, audio coverage) once a full run completes — the design's figures are pre-run measurements and should be annotated with outcomes, per this repo's convention of correcting findings in place.
+- [x] 8.1 Dry-run the full pipeline through `merge` with no push; confirm the funnel against design D6's measured figures (~1,563 auto-skip, ~7,566 import) and investigate any material divergence rather than accepting it.
+- [x] 8.2 Push a small accepted subset (≤20) to a throwaway stabbur database; verify `origin`, `import_ref`, `status=draft`, audio blob resolution, and that the notes are filterable by `origin=import` in the notes browser.
+- [x] 8.3 Interrupt a push mid-run and re-run it; verify no duplicate notes are created.
+- [x] 8.4 Re-run `judge` after editing the deny-list; verify review decisions survive and only verdicts change.
+- [x] 8.5 Confirm no `type=grammar` note and no `grammar_rule` row is created by any stage (design D9).
+- [x] 8.6 Confirm the tool makes no smia request and no outbound network call other than to stabbur's own API.
+- [x] 8.7 Record in the design the actual final counts (imported, skipped, audio coverage) once a full run completes — the design's figures are pre-run measurements and should be annotated with outcomes, per this repo's convention of correcting findings in place.
 
 ## 9. Open items to resolve during implementation
 
 - [ ] 9.1 Verify A1's audio is genuinely human by listening to a sample (design risk — if synthesised, coverage falls from ~35% to ~8%).
-- [ ] 9.2 Decide whether the ~1,100 sentence-shaped A1 candidates need near-duplicate detection against each other; lexeme signatures do not apply to sentences. Record the decision either way.
-- [ ] 9.3 Decide whether freq6k's 3,881 ordbok articles should serve as a general Norwegian lexicon across the whole pipeline rather than only for its own words.
+- [x] 9.2 Decide whether the ~1,100 sentence-shaped A1 candidates need near-duplicate detection against each other; lexeme signatures do not apply to sentences. Record the decision either way.
+- [x] 9.3 Decide whether freq6k's 3,881 ordbok articles should serve as a general Norwegian lexicon across the whole pipeline rather than only for its own words.

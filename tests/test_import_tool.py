@@ -126,14 +126,22 @@ def test_cli_status_runs_with_no_prior_runs(tmp_path, capsys):
     assert "never run" in out
 
 
-def test_cli_stub_stage_fails_cleanly_and_logs_failure(tmp_path, capsys):
-    # "merge" is still a stub past section 4 (ingest/normalize/key/judge
-    # are implemented) — pick whichever stage is still a NotImplementedError
-    # stub so this test doesn't need updating every time a new section lands.
+def test_cli_stage_failure_is_logged_and_reported(tmp_path, capsys, monkeypatch):
+    """Every section-implementing stage is wired in now (ingest through
+    push); exercise `cli.run_stage`'s failure path directly with a stub
+    that raises, rather than relying on there always being an
+    unimplemented stage left to pick."""
+    import stages as import_stages
+
+    def _boom(conn, run_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setitem(import_stages.STAGE_FUNCS, "push", _boom)
+
     db_path = tmp_path / "candidates.db"
-    exit_code = import_cli.main(["--db", str(db_path), "merge"])
+    exit_code = import_cli.main(["--db", str(db_path), "push"])
     assert exit_code == 1
-    assert "not yet implemented" in capsys.readouterr().err
+    assert "boom" in capsys.readouterr().err
 
     conn = import_db.connect(db_path)
     run_row = conn.execute("SELECT status FROM run ORDER BY id DESC LIMIT 1").fetchone()

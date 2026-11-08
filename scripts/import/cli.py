@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     except NotImplementedError as exc:
         print(f"{args.command}: not yet implemented — {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:  # noqa: BLE001 — already logged to `run`/`log` by run_stage; surface cleanly here
+        print(f"{args.command}: failed — {exc}", file=sys.stderr)
+        return 1
     print(f"{args.command}: in={count_in} out={count_out} discarded={count_discarded}")
     return 0
 

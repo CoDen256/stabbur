@@ -46,17 +46,23 @@ def judge(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
 
 def merge(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 5: one candidate per signature, by source priority."""
-    raise NotImplementedError("merge lands in section 5 (tasks 5.1-5.5)")
+    import merge as merge_stage
+
+    return merge_stage.run(conn, run_id)
 
 
 def review(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 6: interactive accept/reject/edit, writing only to `decision`."""
-    raise NotImplementedError("review lands in section 6 (tasks 6.1-6.4)")
+    import review as review_stage
+
+    return review_stage.run(conn, run_id)
 
 
 def push(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 7: accepted candidates -> `POST /api/notes` + blob upload."""
-    raise NotImplementedError("push lands in section 7 (tasks 7.1-7.4)")
+    import push as push_stage
+
+    return push_stage.run(conn, run_id)
 
 
 STAGE_FUNCS = {

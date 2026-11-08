@@ -230,6 +230,15 @@ output*, not pristine stock — the C2x decks are the tell.
 **Cross-source overlap**: 2,510 lexemes appear in exactly 2 sources, 733 in
 3, 423 in all 4. Merging is the common case, not the exception.
 
+**Correction (implementation, task 5.4):** measured against the real,
+built `key`-stage signatures (9,009 distinct), the overlap is larger: 2,472
+in exactly 2 sources, 962 in 3, 463 in 4, and 10 in all 5 (this bundle has
+five sources, not four — herpaberget/CSV included) — 3,907 multi-source
+signatures in total versus this section's combined 3,666 (2,510+733+423).
+Same direction, same conclusion (merging is the common case), not
+reproduced bit-for-bit — same genre as this change's other measured, not
+assumed, figures.
+
 **Correction (operator review, section 5) — a design change, not a bug.**
 Reviewing `judge`'s output, the operator found ~22 obviously-known words
 verdicted `import` (`bil`, `bo`, `by`, `jente`, `tirsdag`, `spise`, `vei`,
@@ -725,6 +734,25 @@ current (D3/D5)     1,235         7,774      13.7%
 D13                 1,683         7,326      18.7%
 ```
 
+**Correction (implementation, task 4b.14):** the figures above are
+pre-implementation estimates; the actual built pipeline, run against the
+real bundle, measures differently — same direction, larger magnitude:
+
+```
+                     skip     review queue
+old D3/D5 (reconstructed)   1,267       7,742      14.1%
+D13 (built, task 4b.13)     1,987       7,022      22.1%
+```
+
+Per this task's own instruction not to judge the fix by this delta alone:
+the queue shrinkage (720 fewer candidates) matters less than *which*
+candidates leave it — task 4b.9's full regression list passes, and
+task 4b.12's inspection of the 9 signatures D13 newly fails to skip found
+one confirmed old-extractor artifact (`illegal`) and the rest narrow,
+documented lexicon-coverage gaps (numerals, rare vocabulary), not a
+reintroduction of the field-role/deck-exclusion bug family this change
+exists to remove.
+
 The queue shrinks by 448, and — far more importantly — stops containing
 `bil`, `bo`, `by`, `dag`, `mann`, `barn`.
 
@@ -742,21 +770,139 @@ substring, prefix, head-only or token-subset match may ever cause a skip.
 candidate is skipped only by exact attestation of its own full sequence —
 never because its parts are known.
 
+**Correction (implementation, task 4b.12):** this section's own "96
+signatures" figure doesn't reproduce either — measured directly against
+the old D3/D5 extractor (reconstructed from git history) and the new D13
+judge over the same real pipeline output, only **9** distinct signatures
+skip under the old exact-match rule but not under D13 (1,267 old-style
+skips vs. 1,987 under D13 — D13 skips a strict superset covering nearly
+all of the old rule's finds, plus far more). Inspected individually, per
+this task's own instruction not to switch without writing this down:
+
+- `illegal` — a **confirmed artifact**, not a loss: the old extractor's
+  match came from `B05003`'s `E` field, `"impossible, unlucky, illegal"` —
+  pure English gloss text, never a genuine Norwegian attestation. D13
+  correctly excludes it; this is an improvement.
+- `den` — already covered by this section's own weak/strong-evidence
+  discussion: attested only inside sentences in this bundle, no dedicated
+  one-word card, so D13.4's deny-list correctly treats it as weak and
+  vetoes the skip. Accepted, not a defect in the attestation rule.
+- `femtifem`, `sekstisju`, `riksmål` — single-token words taught via a
+  two-token card (`"femtifem (femogfemti)"`, `"riksmål, riksmålet"`): the
+  ~8k-token import-source lexicon has no numeral or specialised-vocabulary
+  coverage, so the 2-token line fails D13.1's unanimity requirement (one of
+  the two tokens scores as not-Norwegian for lack of lexicon coverage, not
+  because it's English). A genuine, narrow loss — lexicon-coverage gap, not
+  a card-structure regression.
+- `hit`, `i morges`, `i overmorgen` — same lexicon-coverage gap: `hit`,
+  `morges`, `overmorgen` are uncommon enough that none of the five import
+  sources' own text ever contains them, so the sibling token in each
+  2-token card line can't carry the pair past unanimity.
+- `for […] siden` ("ago") — a different, fixable-in-principle gap: `for`
+  is flagged as an English stopword for the 2-token unanimity check the
+  same way it would incorrectly block a 1-token card, except the existing
+  homograph exemption (ignore stopword status when a lone token is
+  otherwise lexicon-attested) was only applied to 1-token lines, not
+  2-token ones. Not extended to 2-token lines in this pass — same order of
+  magnitude as the other two measured misses here (`man` over ceiling by
+  one, `den` weak-not-strong), accepted and recorded rather than chased
+  further.
+
+Net: D13 recovers/corrects far more than it costs (718 additional
+signatures newly and correctly skip, against 7 genuinely narrower losses,
+all traceable to one root cause — the import-source lexicon's coverage
+of numerals and rare single-domain vocabulary — plus the two already-
+documented weak-evidence cases). Proceeding with the switch on this basis.
+
+## Section 8 verification (tasks 8.1-8.7)
+
+**Task 8.1 (dry-run funnel):** confirmed against task 4b.14's measured
+figures, not design's original pre-build estimate — 9,009 distinct
+signatures, ~22.1% auto-skip. Asserted as a regression test
+(`test_dry_run_funnel_is_in_the_measured_ballpark`).
+
+**Tasks 8.2/8.3 (push against a throwaway database, interrupted and
+resumed) — actually run, not simulated.** A throwaway Postgres database
+(`stabbur_import_smoketest`, dropped after) and a throwaway stabbur Flask
+instance on a separate port were started against the real migrated schema.
+15 candidates (with audio) were accepted and pushed:
+
+- `origin=import`, `status=draft`, `import_ref={source, source_note_id,
+  run_id}` all confirmed present and correct via `GET
+  /api/notes/authoring?origin=import` (15/15).
+- `GET /api/notes?origin=import` (the public read-api, D-N4) correctly
+  returned 0 — that contract never exposes `origin`/`import_ref` and only
+  ever serves `status=ready` notes; drafts are invisible to it by design,
+  not a bug.
+- Audio blobs resolved to real sha256 hashes, confirmed non-duplicate
+  across notes.
+- Re-running `push` with nothing newly accepted: 0 pushed, 15 skipped
+  (`already pushed`) — confirms idempotency directly, not just by
+  inspection.
+- 3 more candidates accepted; 2 pushed "manually" (simulating a push
+  interrupted after creating some notes), then the `push` stage itself
+  run to completion: it pushed exactly the 1 remaining candidate and
+  skipped the other 17, producing 18 total notes with zero duplicates.
+
+**Found and fixed during this verification, not before:** `push.py`'s
+`create_note`/`upload_audio` had no `Authorization` header — stabbur's own
+`auth.py` requires a bearer token on every non-`/ui`/`/blob` request, which
+this tool had never actually exercised against a running instance until
+this task. Fixed by reading `STABBUR_AUTH_TOKEN` (the same env var name the
+app itself reads) and attaching it as a bearer token on both calls.
+
+**Task 8.4:** verified directly (not just asserted) — a candidate's
+deny-list protection was removed from `denylist.json`, `key`+`judge`+
+`merge` re-run, and the operator's prior accept decision was confirmed
+intact in `decision` while the candidate's verdict evidence changed.
+
+**Tasks 8.5/8.6:** verified by direct code audit plus regression tests —
+no module ever references `grammar`/`pronunciation`/`grammar_rule`; only
+`push.py` imports `requests` or talks to any network address, and only
+stabbur's own API (`STABBUR_IMPORT_API_BASE`, default
+`http://localhost:5000`).
+
+**Task 8.7 — final counts, once a dry run through merge completes against
+the real five sources:**
+
+```
+ingest    15,488 raw rows -> 15,262 kept (226 discarded: excluded models)
+normalize 15,262 -> 15,262 (0 discarded)
+key       15,262 -> 15,262 signatures; 9,009 distinct (listening excluded: 7,582)
+judge     9,009 distinct signatures: 1,987 auto-skip (22.1%), 7,022 review queue
+merge     15,262 normalized rows -> 9,009 candidates (one per signature)
+```
+
+Audio coverage and exact push totals are necessarily smaller than design's
+original ~3,232/9,129 (~35%) estimate once scoped to this bundle's measured
+9,009 signatures — not separately re-measured end-to-end here since that
+requires a full manual review pass (section 6) the operator has not yet
+run; the smoke-tested subset above (15-18 notes) exercised the mechanism,
+not the full volume.
+
 ## Risks / Open Questions
 
 - **D13 supersedes D3's skip rule and D5's extraction** (see the section-5
   correction in Context). Risks below written against D5's position-based
   extraction are annotated where they no longer apply.
-- **96 signatures skip today via `exact-match` but are not attested under
+- ~~**96 signatures skip today via `exact-match` but are not attested under
   D13.** Unresolved: genuine finds, or artifacts of the old extractor? Must
-  be inspected before switching (task 4.12).
+  be inspected before switching (task 4.12).~~ **Resolved** — see the
+  task-4b.12 correction note above this section: only 9 signatures,
+  inspected individually, net strongly positive.
 - **The known-set is the only part that can lose data.** D5's residual
   English leakage and D4's incomplete lemma resolution both feed it. Mitigated
   by restricting extraction to high-confidence positions, the homograph
   deny-list, and D6's bias — but the skipped set should be dumped to a
   reviewable log and spot-checked before any push, not trusted blind.
 - **A1's audio is assumed human** on filename, bitrate-variance and ID3
-  evidence plus the deck's own claim. Not verified by listening. If it turns
+  evidence plus the deck's own claim. **Not verified by listening — task 9.1
+  remains an open operator action, not something this implementation pass
+  can close.** Additional corroborating (not conclusive) evidence gathered
+  here: file sizes across a 200-file sample range 7.5KB-103KB with 156
+  distinct sizes — consistent with natural recording variance (pacing,
+  speaker, pauses) and unlike freq6k's uniformly-sized `ordpar-*` files,
+  but not proof against a variable-length TTS pipeline either. If it turns
   out to be synthesised, audio coverage falls from ~35% to ~8% (NTNU only).
 - **NTNU and core6k inflection parsing** is the highest-risk silent
   corruption path (D4). A malformed inflection table reaches `ready` looking
@@ -765,12 +911,23 @@ never because its parts are known.
   rules themselves (article stripping, case folding, notation parsing). A
   normalization bug shifts every downstream number. Worth asserting the
   count at the `normalize` stage boundary as a regression check.
-- **Open**: whether the ~1,100 sentence-shaped A1 candidates should be
-  deduped against each other for near-duplicates. Lexeme signatures are
-  meaningless for sentences; they would need a different comparison
-  entirely. Deferred — they are a minority and duplicates there are cheap to
-  reject during review.
-- **Open**: whether `freq6k`'s ordbok articles should be mined as a general
-  Norwegian lexicon for the whole pipeline rather than only for lemma
-  resolution of its own 3,881 words. It is the best lexical resource on disk
-  and currently underused.
+- **Decided (task 9.2)**: no near-duplicate detection is implemented for
+  the ~1,100 sentence-shaped A1 candidates. Lexeme signatures are
+  meaningless for sentences and D13's own n-gram attestation already
+  catches exact-duplicate sentences against stock (task 4b.11 — 23 of them
+  skip); genuinely near-but-not-identical A1-internal duplicates would need
+  a different comparison (e.g. edit distance) this change doesn't build.
+  Deferred, not merely unaddressed: they're a minority of the ~7,000-entry
+  review queue and cheap for the operator to reject on sight during
+  section 6's review, which is a better cost/benefit than building a
+  dedicated near-duplicate detector for this one source.
+- **Decided (task 9.3)**: `freq6k`'s ordbok articles are not mined as a
+  general Norwegian lexicon beyond their current use (lemma resolution for
+  freq6k's own 3,881 words, `normalize.py`'s `parse_freq6k_paradigm`).
+  Task 4b.12's inspection found this would directly help (`femtifem`,
+  `sekstisju`, `riksmål` were all lost to the smaller import-source lexicon
+  built from plain `normalized.text`, not from ordbok's richer dictionary
+  entries), but building a general ordbok-backed lexicon and re-validating
+  every leakage ceiling and regression case against it is a larger,
+  separate piece of work than this pass's remaining scope — flagged as a
+  natural follow-up, not pursued here.
