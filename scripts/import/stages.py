@@ -32,12 +32,16 @@ def normalize(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
 
 def key(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 4.4: lexeme signature builder, `normalized` -> `signature`."""
-    raise NotImplementedError("key lands in section 4 (task 4.4)")
+    import key as key_stage
+
+    return key_stage.run(conn, run_id)
 
 
 def judge(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 4: known-set match against stock, `signature` -> `verdict`."""
-    raise NotImplementedError("judge lands in section 4 (tasks 4.1-4.3, 4.5-4.8)")
+    import judge as judge_stage
+
+    return judge_stage.run(conn, run_id)
 
 
 def merge(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:

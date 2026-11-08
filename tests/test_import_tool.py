@@ -127,11 +127,11 @@ def test_cli_status_runs_with_no_prior_runs(tmp_path, capsys):
 
 
 def test_cli_stub_stage_fails_cleanly_and_logs_failure(tmp_path, capsys):
-    # "key" is still a stub past section 3 (ingest/normalize are
-    # implemented) — pick whichever stage is still a NotImplementedError
+    # "merge" is still a stub past section 4 (ingest/normalize/key/judge
+    # are implemented) — pick whichever stage is still a NotImplementedError
     # stub so this test doesn't need updating every time a new section lands.
     db_path = tmp_path / "candidates.db"
-    exit_code = import_cli.main(["--db", str(db_path), "key"])
+    exit_code = import_cli.main(["--db", str(db_path), "merge"])
     assert exit_code == 1
     assert "not yet implemented" in capsys.readouterr().err
 

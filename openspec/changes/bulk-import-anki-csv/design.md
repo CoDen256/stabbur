@@ -39,6 +39,83 @@ closed without the original (undocumented) script:
   is asserted once `key` exists; `normalize` only logs its surface-text
   count for visibility.
 
+**Correction (implementation, section 4):** `key` now exists. Getting to a
+trustworthy distinct-lexeme count took three measurements, because task
+4.8's own instruction — spot-check the skipped set before trusting it —
+caught two real bugs that a single measurement would have hidden:
+
+1. First pass: **9,270**, within 1.5% of this document's 9,129 — looked
+   like confirmation. But spot-checking the skipped set (task 4.8) found
+   roughly 20% of all auto-skips were wrong: a leading `en`/`et`/`ei` was
+   being treated as the signature *head* rather than stripped the way `å`
+   already was, so `et år` keyed as `(head="et", complements=["år"])` —
+   a different signature from plain `år`, and from `en år`/`ei år` too.
+   This inflated the distinct count with spurious article-led duplicates
+   of words already counted once.
+2. After stripping the leading article like `å` (lexeme.py's
+   `_INDEF_ARTICLE_RE`): **7,252**. Correctly collapsed those duplicates,
+   but surfaced a second, independent bug: the freq6k paradigm miner's
+   flat form->lemma map let one word's inflected form silently overwrite
+   a *different* word's own standalone identity — `når` ("when") is also
+   `nå`'s ("now") present tense, so `når` was quietly resolving to `nå`'s
+   lemma, and candidates literally spelled `når` would have been
+   auto-skipped as if they were `nå`. Same failure for `lyst`/`lyse`,
+   `lys`/`lys`, and others.
+3. After guarding every standalone headword in `normalized` against being
+   overwritten by someone else's derived form (`lexeme.
+   protected_identities`, used by both `build_lemma_map_from_normalized`
+   and the stock C03 bootstrap merge in `key.build_combined_lemma_map`):
+   **7,582**, asserted as the final baseline.
+
+7,582 ends up farther from 9,129 than the first (buggy) measurement — that
+is the correct outcome, not a regression: the first number was inflated
+by exactly the two bugs above, and the true count also absorbs a handful
+of irreducible homograph collisions the D3 signature can't distinguish on
+its own (`tre` the tree / the numeral "three" / "to step" necessarily
+share one signature, since D3 carries no part-of-speech). Both bugs are
+exactly the failure mode task 4.8 exists to catch, and catching them is a
+better outcome than hitting 9,129 on a flawed first measurement would have
+been.
+
+Two more corrections, this time to task 4.7's worked regression
+examples, found by actually running the judge against the real stock
+bundle rather than re-deriving it from the earlier prose:
+
+- **`bli med`** is not a "known head, unknown meaning" case — stock card
+  `B13004` teaches `å bli med` verbatim. By this change's own
+  exact-signature-match rule (D3), a candidate `bli med` is therefore
+  correctly auto-skipped, not a false skip. Removed from the "all import"
+  list in 4.7.
+- **`allerede`** is not merely a coincidental prefix of a known `alle` —
+  stock card `B09056` teaches `allerede` itself directly, and `alle` turns
+  out not to be separately known in the extracted set at all. So
+  `allerede` is correctly auto-skipped too, for a real reason unrelated to
+  prefix matching. The anti-prefix-matching property this example was
+  meant to demonstrate is still true and still enforced (the only
+  known-set lookup is a dict-key equality check on the full signature —
+  there is no substring or prefix comparison in the code at all); it's
+  covered in 4.7 by `aleneforsørger` (confirmed via direct measurement:
+  its signature shares no component with any known signature) plus a
+  structural test on the comparison mechanism itself, rather than by this
+  specific illustrative pair.
+- Separately, the `(eller) ei` → `and` leak in `kvitt, kvitt, kvitt (no
+  comparative and superlative)` that motivated the deny-list's `and` entry
+  doesn't actually reach the known-set under this implementation —
+  parenthetical asides are stripped before tokenizing (task 4.2), which
+  removes the one identified leak source before it can produce a known
+  signature. The deny-list (task 4.3) is implemented and tested as a
+  working safety net regardless — this just means it isn't currently
+  load-bearing for this specific word, which is a better outcome, not a
+  reason to skip it.
+
+Also, the stock bundle is not at this document's literal
+`~/mjolnir/index.android.bundle.exploded/2113.js` path on this operator's
+machine — the equivalent file lives at
+`~/dev/mjolnir/index.android.bundle.exploded/2113.js` instead.
+`stock.py` defaults to the path as originally documented and honours
+`STABBUR_IMPORT_STOCK_BUNDLE` as an override, which is how this section
+was actually run and measured.
+
 **The five sources** (`import/`, gitignored):
 
 | source | notes | fields | audio | audio verdict |
@@ -52,11 +129,13 @@ closed without the original (undocumented) script:
 Five sources, five mutually incompatible field models. There is no shared
 schema to lean on; each needs its own parser.
 
-**The stock bundle** (`~/mjolnir/index.android.bundle.exploded/2113.js`) is
-the operator's existing knowledge: 2,801 card entries, of which 13 are
-stabbur's own P4 seed in decks C20–C29 and must be excluded, leaving 2,788
-stock cards across 44 decks. Note this file is *builder output*, not pristine
-stock — the C2x decks are the tell.
+**The stock bundle** (`~/mjolnir/index.android.bundle.exploded/2113.js`,
+not at that literal path on this operator's machine — see the section 4
+implementation-correction note below) is the operator's existing
+knowledge: 2,801 card entries, of which 11 (not 13 — corrected, section 4)
+are stabbur's own P4 seed in decks C20–C29 and must be excluded, leaving
+2,790 (not 2,788) stock cards across 44 decks. Note this file is *builder
+output*, not pristine stock — the C2x decks are the tell.
 
 **Measured candidate pool**: 9,129 distinct lexemes after normalization
 (7,097 single-word, 2,032 multiword), with grammar excluded.

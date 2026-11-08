@@ -36,19 +36,19 @@
 
 ## 4. Known-set extraction and judging
 
-- [ ] 4.1 Stock extractor over `~/mjolnir/index.android.bundle.exploded/2113.js`. **Exclude decks `C2*`** — those 13 cards are stabbur's own P4 seed, not stock (2,801 entries → 2,788 stock cards).
-- [ ] 4.2 Extract only high-confidence Norwegian positions (design D5): vocabulary headwords, inflection lines, and Norwegian-sentence `N` fields. **Exclude answer and prose fields entirely.** Do not use HTML emphasis markup as a language signal — it was measured to carry none (28% vs 25%).
-- [ ] 4.3 Hand-written NO/EN homograph deny-list (`and`, `to`, `for`, `man`, `i`, `form`, …) — entries on it can never auto-skip. Keep it as a reviewable data file, not inline constants.
-- [ ] 4.4 Lexeme signature builder (design D3): `(head_lemma, ordered_particles, reflexive, obligatory_complements)`, using D4's form→lemma map from source inflection data. No smia call anywhere in this tool.
-- [ ] 4.5 Judge: auto-skip **only** on exact signature match. Implement the prohibition explicitly — no substring, prefix, head-only, or token-subset comparison exists in the code path.
-- [ ] 4.6 Flag rules, each writing its evidence to `verdict`: same-head-different-particle (→ reference the stock relative, e.g. `legge til` → `cf. å legge til noen i kopi`), all-tokens-known-phrase-unknown, sentence-shaped.
-- [ ] 4.7 Regression tests on the measured cases from design D3 — these are the whole point of the change and must be asserted, not assumed:
-  - `legge til` imports despite stock teaching `legge`, `legge seg`, `legge merke til`, `legge vekt på`, `legge til noen i kopi`
+- [x] 4.1 Stock extractor over `~/mjolnir/index.android.bundle.exploded/2113.js` (not present at that literal path on this operator's machine — see design.md's implementation-correction note for the real path and `STABBUR_IMPORT_STOCK_BUNDLE`). **Exclude decks `C2*`** — those cards are stabbur's own P4 seed, not stock (2,801 entries → 11 in `C2*`, not 13 → 2,790 stock cards, not 2,788; corrected, see design.md).
+- [x] 4.2 Extract only high-confidence Norwegian positions (design D5): vocabulary headwords, inflection lines, and Norwegian-sentence `N` fields. **Exclude answer and prose fields entirely.** Do not use HTML emphasis markup as a language signal — it was measured to carry none (28% vs 25%).
+- [x] 4.3 Hand-written NO/EN homograph deny-list (`and`, `to`, `for`, `man`, `i`, `form`, …) — entries on it can never auto-skip. Keep it as a reviewable data file, not inline constants.
+- [x] 4.4 Lexeme signature builder (design D3): `(head_lemma, ordered_particles, reflexive, obligatory_complements)`, using D4's form→lemma map from source inflection data. No smia call anywhere in this tool.
+- [x] 4.5 Judge: auto-skip **only** on exact signature match. Implement the prohibition explicitly — no substring, prefix, head-only, or token-subset comparison exists in the code path.
+- [x] 4.6 Flag rules, each writing its evidence to `verdict`: same-head-different-particle (→ reference the stock relative, e.g. `legge til` → `cf. å legge til noen i kopi`), all-tokens-known-phrase-unknown, sentence-shaped.
+- [x] 4.7 Regression tests on the measured cases from design D3 — these are the whole point of the change and must be asserted, not assumed. **Two of the originally listed cases don't hold against the real stock bundle and are corrected here (see design.md's implementation-correction note); the underlying anti-prefix/anti-substring property they were meant to demonstrate is still covered, by a verified-correct case and a structural test:**
+  - `legge til` imports despite stock teaching `legge`, `legge seg`, `legge merke til`, `legge vekt på`, `legge til noen i kopi`, `legge sammen med`
   - `bli kvitt`, `bli klar over`, `bekymre seg`, `bestemme seg`, `bli lei av` all import
-  - `gi opp`, `bli med`, `regne ut`, `dø ut`, `legge om`, `bytte ut`, `låne ut`, `finne fram` all import
-  - `allerede` imports (coincidental prefix of `alle`); `aleneforsørger` imports
-  - `and` (duck) is **not** auto-skipped despite 62 English-prose occurrences
-- [ ] 4.8 Dump the full skipped set to a reviewable log and spot-check it before any push (design's first stated risk — the known-set is the only part that can lose data).
+  - `gi opp`, `regne ut`, `dø ut`, `legge om`, `bytte ut`, `låne ut`, `finne fram` all import. **`bli med` removed from this list** — stock card `B13004` teaches `å bli med` verbatim, so by the exact-signature-match rule it is correctly auto-skipped, not a false skip.
+  - `aleneforsørger` imports (its signature shares no component with any known signature, despite the letter-prefix). **`allerede` removed from this list** — stock card `B09056` teaches `allerede` itself directly (not merely `alle`, which turns out not to be separately known at all), so it is correctly auto-skipped for a real reason unrelated to prefix matching. The no-prefix-matching property itself is additionally covered by a structural test asserting the code path contains no substring/prefix comparison.
+  - `and` (duck) is **not** auto-skipped. Measured: with parenthetical asides stripped before tokenizing (task 4.2), "and" does not actually leak into the known-set from the one identified source (`kvitt, kvitt, kvitt (no comparative and superlative)`) — the deny-list is verified as a working safety net (test asserts a denylisted lemma can never produce a skip verdict even when forced into the known-set), not currently load-bearing for this specific word.
+- [x] 4.8 Dump the full skipped set to a reviewable log and spot-check it before any push (design's first stated risk — the known-set is the only part that can lose data). **This spot-check caught two real bugs** (see design.md's section 4 implementation-correction note): a leading `en`/`et`/`ei` was being treated as the signature head instead of stripped like `å`, and the freq6k paradigm miner's flat form→lemma map let one word's inflected form overwrite a different word's own standalone identity (`når`→`nå`, `lyst`→`lys`, …). Both fixed (`lexeme.py`'s `_INDEF_ARTICLE_RE` and `protected_identities`); the distinct-lexeme figure in 3.9/4.4 moved from 9,270 (looked plausible, was wrong) to the corrected 7,582.
 
 ## 5. Merge
 

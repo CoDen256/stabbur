@@ -1,0 +1,22 @@
+{
+  "_comment": "Hand-written NO/EN homograph deny-list (task 4.3). Entries here can NEVER cause an auto-skip, regardless of what the known-set extraction (stock.py) produces for them — defense in depth against English prose leaking into the known-set (design D5's accepted residual risk) coinciding with a genuine Norwegian word of the same spelling. Reviewable data, not inline constants: add an entry here, not in code, when a new false-skip risk is found (task 4.8's skipped-set review is where these get discovered).",
+  "lemmas": [
+    "and",
+    "to",
+    "for",
+    "man",
+    "i",
+    "form",
+    "om",
+    "er",
+    "den",
+    "det",
+    "så",
+    "men",
+    "under",
+    "over",
+    "that",
+    "a",
+    "us"
+  ]
+}
