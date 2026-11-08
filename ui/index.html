@@ -197,7 +197,19 @@
                 <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
                 <div class="suggest-panel" id="e_inflections_suggest" data-kind="inflections" data-prefix="e"></div>
               </div>
-              <div class="field"><label for="e_context_text">Context text</label><textarea id="e_context_text"></textarea></div>
+              <div class="field">
+                <label for="e_context_text">Context text</label>
+                <textarea id="e_context_text"></textarea>
+                <div class="suggest-control">
+                  <button type="button" class="suggest-toggle" data-suggest-toggle="e_examples_suggest">✨ Suggest examples<span class="count" id="e_examples_suggest_count" style="display:none"></span></button>
+                  <div class="suggest-control-divider"></div>
+                  <input type="text" class="suggest-query" id="e_examples_suggest_query" spellcheck="false">
+                  <div class="suggest-control-divider"></div>
+                  <input type="number" class="examples-count-input" id="e_examples_count" min="1" max="10" value="3" title="Candidates per provider">
+                  <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_examples_suggest" title="Re-run every provider">⟳</button>
+                </div>
+                <div class="suggest-panel" id="e_examples_suggest" data-kind="examples" data-prefix="e"></div>
+              </div>
               <div class="field" id="e_grammar_rule_field" style="display:none">
                 <label for="e_grammar_rule_id">Grammar rule</label>
                 <select id="e_grammar_rule_id"><option value="">— none —</option></select>
@@ -385,7 +397,19 @@
             <p class="inline-note">Different providers shape this differently — copy or fill whichever form matches, nothing auto-fills.</p>
             <div class="suggest-panel" id="c_inflections_suggest" data-kind="inflections" data-prefix="c"></div>
           </div>
-          <div class="field"><label for="c_context_text">Context text</label><textarea id="c_context_text"></textarea></div>
+          <div class="field">
+            <label for="c_context_text">Context text</label>
+            <textarea id="c_context_text"></textarea>
+            <div class="suggest-control">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_examples_suggest">✨ Suggest examples<span class="count" id="c_examples_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_examples_suggest_query" spellcheck="false">
+              <div class="suggest-control-divider"></div>
+              <input type="number" class="examples-count-input" id="c_examples_count" min="1" max="10" value="3" title="Candidates per provider">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_examples_suggest" title="Re-run every provider">⟳</button>
+            </div>
+            <div class="suggest-panel" id="c_examples_suggest" data-kind="examples" data-prefix="c"></div>
+          </div>
           <div class="field" id="c_grammar_rule_field" style="display:none">
             <label for="c_grammar_rule_id">Grammar rule (required for type=grammar)</label>
             <select id="c_grammar_rule_id"><option value="">— none —</option></select>

@@ -25,7 +25,8 @@ import smia_client
 
 # stabbur only proxies the kinds a note actually has fields for — /stt has
 # no corresponding note field today, so it's deliberately not exposed here.
-ENRICHABLE_KINDS = ("ipa", "translations", "inflections", "tts")
+# `examples` qualifies because `context_text` is that field.
+ENRICHABLE_KINDS = ("ipa", "translations", "inflections", "tts", "examples")
 
 
 class UnsafeUrlError(Exception):

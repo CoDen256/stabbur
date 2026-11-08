@@ -305,6 +305,12 @@ pre.json {
 }
 .suggest-query::placeholder { color: var(--text-faint); font-family: system-ui, sans-serif; }
 
+.suggest-control input.examples-count-input {
+  flex: none; width: 34px; border: none; border-left: 1px solid var(--border); background: transparent;
+  color: var(--text); font: inherit; font-size: 12.5px; font-family: ui-monospace, monospace;
+  text-align: center; padding: 7px 4px; outline: none; border-radius: 0;
+}
+
 /* Panel-level "re-run every provider" control, flush within the pill
    alongside the toggle/divider/query — distinct from each provider row's
    own ↻ retry, which stays inside the opened panel (editor-session-hygiene
@@ -370,6 +376,14 @@ pre.json {
 .use-btn:hover { background: var(--ok); color: #fff; }
 .use-btn.used { background: var(--ok); color: #fff; }
 .suggest-error { font-size: 12.5px; color: var(--err); }
+/* Example sentences wrap, unlike every other kind's short single-line
+   candidate — the text gets its own line above the metadata/action row
+   rather than reusing .candidate-row's single-row layout (design D5). */
+.candidate-sentence-row { padding: 7px 0; border-top: 1px dashed var(--border); }
+.candidate-sentence-row:first-child { border-top: none; padding-top: 0; }
+.candidate-sentence-text { display: block; white-space: pre-wrap; line-height: 1.45; margin-bottom: 5px; }
+.candidate-sentence-foot { display: flex; align-items: center; gap: 10px; }
+.candidate-sentence-foot .candidate-meta { flex: 1; }
 .ipa-per-word { display: flex; flex-direction: column; gap: 10px; }
 .ipa-token-group { border-top: 1px dashed var(--border); padding-top: 6px; }
 .ipa-token-group:first-child { border-top: none; padding-top: 0; }

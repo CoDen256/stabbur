@@ -1173,6 +1173,18 @@ document.querySelectorAll('.suggest-control').forEach((control) => {
 });
 updateSuggestCounts();
 
+// Raising/lowering the requested count is a genuinely new lookup, not a
+// forced re-fetch of the same one — `limit` is part of smia's cache
+// identity (design D4) — so this rebuilds the panel the same way any other
+// query change would, only if the panel is already open.
+document.querySelectorAll('.examples-count-input').forEach((input) => {
+  input.addEventListener('change', () => {
+    const prefix = input.id.split('_')[0];
+    const panel = document.getElementById(`${prefix}_examples_suggest`);
+    if (panel && panel.classList.contains('open')) openSuggestPanel(panel);
+  });
+});
+
 // Panel-level "re-run every provider" control — re-opens/re-fires the panel
 // in place (it already stays marked `.open` throughout) with a forced cache
 // bypass, making the existing Enter-to-fire behaviour discoverable
@@ -1313,13 +1325,24 @@ function smiaLangCode(sourceLang) {
   return sourceLang || 'nb';
 }
 
-function enrichRequestFields(kind, prefix, queryValue, lang) {
+function enrichRequestFields(kind, prefix, queryValue, lang, limit) {
   const sourceLang = smiaLangCode(suggestFieldValue(prefix, 'source_lang'));
   if (kind === 'ipa') return { text: queryValue, lang: sourceLang };
   if (kind === 'inflections') return { word: queryValue, lang: sourceLang };
   if (kind === 'tts') return { text: queryValue, lang: sourceLang };
   if (kind === 'translations') return { text: queryValue, from: sourceLang, to: lang };
+  if (kind === 'examples') return { text: queryValue, lang: sourceLang, limit };
   return {};
+}
+
+// smia's own default (design D4) — the count control starts here and is
+// clamped to smia's accepted 1–10 range before ever being sent.
+const EXAMPLES_DEFAULT_LIMIT = 3;
+function examplesLimitValue(prefix) {
+  const el = document.getElementById(`${prefix}_examples_count`);
+  const n = el ? parseInt(el.value, 10) : NaN;
+  if (!Number.isFinite(n)) return EXAMPLES_DEFAULT_LIMIT;
+  return Math.min(10, Math.max(1, n));
 }
 
 // `forceRefresh` is only ever sent when true — an operator-initiated
@@ -1408,7 +1431,7 @@ function renderManualLinkState(provider, url, prefix) {
 // copying `defaultQuery`, so it reads unambiguously as "something
 // different," not a copy. Retrying uses the override's value if revealed
 // and non-empty, otherwise falls back to `defaultQuery`.
-function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang, initialForceRefresh) {
+function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang, initialForceRefresh, limit) {
   const row = enrichEl(`
     <div class="provider-row">
       <div class="provider-head">
@@ -1436,7 +1459,7 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
 
   async function fire(queryValue, forceRefresh) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
-    const fields = enrichRequestFields(kind, prefix, queryValue, lang);
+    const fields = enrichRequestFields(kind, prefix, queryValue, lang, limit);
     const { status, body } = await enrichLookup(kind, provider, fields, forceRefresh);
     const isManualLink = status === 200 && body && Array.isArray(body.candidates)
       && body.candidates.length === 0 && body.url && MANUAL_LINK_CAPTURE_ROUTES[provider];
@@ -1670,6 +1693,37 @@ function renderTtsCandidate(prefix) {
       } else {
         btn.textContent = originalLabel;
       }
+    });
+    return r;
+  };
+}
+
+// A corpus provider (tatoeba/leipzig) names the dataset via `source`; a
+// dictionary provider (ordbokene/kaikki) names the definition via `sense`.
+// Both are optional and shown only when present — no placeholder for the
+// absent one, since an absent field is a complete answer, not missing data
+// (examples-context-suggestions design D3). smia strips translations from
+// every example, so none is requested or rendered here.
+function renderExamplesCandidate(prefix) {
+  return (c, providerName) => {
+    const metaBits = [];
+    if (c.sense) metaBits.push(`sense: ${c.sense}`);
+    if (c.source) metaBits.push(`source: ${c.source}`);
+    const r = enrichEl(`
+      <div class="candidate-sentence-row">
+        <div class="candidate-text candidate-sentence-text">${escapeHtml(c.text || '')}</div>
+        <div class="candidate-sentence-foot">
+          ${metaBits.length ? `<span class="candidate-meta">${escapeHtml(metaBits.join(' · '))}</span>` : '<span class="candidate-spacer"></span>'}
+          <button class="use-btn" type="button">Use</button>
+        </div>
+      </div>
+    `);
+    r.querySelector('.use-btn').addEventListener('click', (e) => {
+      const field = document.getElementById(`${prefix}_context_text`);
+      field.value = c.text || '';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      markSuggestUsed(e.target);
+      enrichToast(`Context set from ${providerName}`);
     });
     return r;
   };
@@ -1946,8 +2000,11 @@ async function openSuggestPanel(panelEl, { forceRefresh = false } = {}) {
 
   panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>editable per-provider</span></div>`));
   const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
-  const renderCandidate = kind === 'ipa' ? renderIpaCandidate(prefix) : renderTtsCandidate(prefix);
-  providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate, undefined, forceRefresh)));
+  const renderCandidate = kind === 'ipa' ? renderIpaCandidate(prefix)
+    : kind === 'examples' ? renderExamplesCandidate(prefix)
+    : renderTtsCandidate(prefix);
+  const limit = kind === 'examples' ? examplesLimitValue(prefix) : undefined;
+  providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow(kind, p, prefix, defaultQuery, renderCandidate, undefined, forceRefresh, limit)));
 }
 
 function closeSuggestPanel(panelEl) {
@@ -1970,13 +2027,14 @@ document.querySelectorAll('[data-suggest-toggle]').forEach((btn) => {
 // Human labels/hints for the kinds stabbur proxies (routes/enrich.py's
 // ENRICHABLE_KINDS) — "tts" reads as "Audio" everywhere else in this UI,
 // so the settings page matches rather than exposing the wire name.
-const SETTINGS_KIND_ORDER = ['ipa', 'translations', 'inflections', 'tts'];
-const SETTINGS_KIND_LABELS = { ipa: 'Transcription', translations: 'Translations', inflections: 'Inflections', tts: 'Audio' };
+const SETTINGS_KIND_ORDER = ['ipa', 'translations', 'inflections', 'tts', 'examples'];
+const SETTINGS_KIND_LABELS = { ipa: 'Transcription', translations: 'Translations', inflections: 'Inflections', tts: 'Audio', examples: 'Examples' };
 const SETTINGS_KIND_HINTS = {
   ipa: 'Queried with text.',
   translations: 'Queried with text.',
   inflections: 'Queried with lemma — the only kind that is.',
   tts: 'Queried with text. Manual-link providers cannot answer automatically, so a prefill run skips past them.',
+  examples: 'Queried with text. No translation is requested or shown.',
 };
 
 function renumberPlist(plist) {
