@@ -7,19 +7,33 @@ transcriptions, part-of-speech for 3,881 words, and a frequency ranking that
 orders them by usefulness. Typing that in by hand is not realistic.
 
 The complication is that the operator already knows the entire stock Mjølnir
-deck — all 2,788 cards, including its sentences, rules and pronunciation
+deck — all 2,790 cards, including its sentences, rules and pronunciation
 material — so importing everything blindly would bury genuinely new
 vocabulary under thousands of words that are already learned. But filtering
-naively is worse: measured against these sources, matching on tokens or
-substrings would wrongly discard 560 idioms built entirely from known words
-(`bli kvitt`, `bli klar over`, `bestemme seg`) and 181 particle verbs whose
-head is known but whose meaning is not (`legge til` is not `legge`). Those
-are precisely the hardest and most valuable items.
+naively is worse: matching on substrings or on a candidate's head alone
+would wrongly discard particle verbs whose head is known but whose meaning
+is not — `legge an` is not `legge` — and those are the hardest and most
+valuable items in the set.
 
-So the import needs a dedup model that compares whole lexemes rather than
-word fragments, a merge across five sources that disagree about the same
+The knowledge model, stated by the operator: **every Norwegian word in the
+stock cards is known, together with every word combination actually attested
+there, and nothing that is not.** So `legge til` is known (stock has `legge
+til noen i kopi`), `vi`/`bor`/`der`/`vi bor der` are all known (stock has
+the sentence), and `legge an` is not known at all.
+
+So the import needs a known-set that is exact attestation rather than
+fragment matching, a merge across five sources that disagree about the same
 word, and a review pass the operator can run, pause, resume and correct
 without re-running anything.
+
+**Amended after section-4 review (design D13).** An earlier version of this
+proposal built the known-set by extracting lexemes from stock's card
+structure, and cited `bli kvitt` as an idiom that must survive filtering.
+Both were wrong: stock attests `bli kvitt` (`"Bli kvitt depresjonen ved
+hjelp av en psykolog"`), so it is known; and structure-based extraction
+produced seven successive bugs, every one found by operator inspection
+rather than by a test, because "is the extracted lexeme set correct?" has no
+ground truth to test against. D13 replaces it.
 
 ## What Changes
 
@@ -31,13 +45,19 @@ without re-running anything.
   reaches stabbur.
 - **Six resumable pipeline stages** — ingest, normalize, key, judge, merge,
   push — each idempotent and separately re-runnable, with a run log.
-- **A known-set built from the stock bundle** (`mjolnir`'s module 2113),
-  treating all of its Norwegian content as already known, but extracting it
-  only from positions that are unambiguously Norwegian so that English
-  explanation prose cannot masquerade as Norwegian vocabulary.
-- **Lexeme-signature dedup**: `(head, particles, reflexive, complements)`.
-  Auto-skip requires an exact signature match. Substring, prefix and
-  head-only matching are prohibited outright.
+- **A known-set built from the stock bundle** (`mjolnir`'s module 2113) as
+  every token and every attested word sequence of its Norwegian text, closed
+  expansively over inflection, with no upper length limit. Norwegian text is
+  identified by scoring each line against a lexicon built from the import
+  sources themselves — **not** from stock's deck, field or card structure,
+  which is what makes the extraction testable (design D13).
+- **Attestation-based skipping.** A candidate skips only if its own full
+  surface sequence is attested. Substring, prefix, head-only and
+  token-subset matching are prohibited outright. Lexeme signatures
+  `(head, particles, reflexive, complements)` are retained for merging
+  candidates, not for deciding skips.
+- **A deny-list that vetoes weak evidence only**, never direct attestation —
+  it may not block a word stock teaches as its own subject.
 - **One candidate per lexeme**, merged across sources by a fixed priority,
   with field-level conflicts recorded for review rather than silently
   resolved.
@@ -83,9 +103,10 @@ without re-running anything.
 - **Audio**: ~3,600 human recordings uploaded as `blob/<sha256>`, which is
   the same content-addressed path captures already use, so duplicate
   recordings across sources collapse for free.
-- **Expected volume**: ~9,100 candidates, ~1,500 auto-skipped, ~7,600
-  presented for review across `type=word`, `expression` and `listening`.
-  Roughly 35% will carry audio; the rest reach stabbur without it.
+- **Expected volume**: 9,009 distinct candidate signatures, ~1,683
+  auto-skipped under D13, ~7,326 presented for review across `type=word`,
+  `expression` and `listening`. Roughly 35% will carry audio; the rest reach
+  stabbur without it.
 - **Out of scope**: `type=grammar` and `type=pronunciation` notes, re-import
   of the CSVs (one-shot by operator decision), `freq6k` Part 2, and any
   network enrichment — this change calls no provider, so there is no rate

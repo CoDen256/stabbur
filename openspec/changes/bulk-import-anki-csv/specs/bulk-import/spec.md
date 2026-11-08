@@ -41,29 +41,42 @@ removed.
 - **WHEN** an entry reads `være i stand til` and contains no notation markers
 - **THEN** it is treated as a multiword expression
 
-### Requirement: Candidates are compared as whole lexeme signatures
-The system SHALL compare candidates against known material using a lexeme
-signature comprising the head lemma, its ordered particles, whether it is
-reflexive, and any obligatory complements — such that forms differing in
-particles, reflexivity, or complements are distinct.
+### Requirement: A candidate is known only if stock attests it exactly
+The system SHALL treat as already-known every word appearing in the existing
+learned material's Norwegian text, together with every contiguous sequence of
+words attested there, and SHALL NOT treat any unattested sequence as known
+regardless of whether its parts are.
 
-#### Scenario: A particle verb is distinct from its bare head
-- **WHEN** `legge til` is compared against known material containing `legge`
-- **THEN** they are treated as different lexemes
+#### Scenario: A particle verb attested in the learned material
+- **WHEN** the learned material contains `legge til noen i kopi` and the
+  candidate is `legge til`
+- **THEN** the candidate is known, because that sequence is attested within it
 
-#### Scenario: A reflexive form is distinct from its non-reflexive head
-- **WHEN** `legge seg` is compared against known material containing `legge`
-- **THEN** they are treated as different lexemes
+#### Scenario: A particle verb not attested anywhere
+- **WHEN** the candidate is `legge an` and no such sequence appears anywhere
+  in the learned material, even though `legge` is known
+- **THEN** the candidate is imported
 
-#### Scenario: A specific collocation does not cover the general form
-- **WHEN** `legge til` is compared against known material containing
-  `legge til noen i kopi`
-- **THEN** they are treated as different lexemes
+#### Scenario: Every subset of an attested sentence is known
+- **WHEN** the learned material contains the sentence `Vi bor der`
+- **THEN** `vi`, `bor`, `der`, `vi bor`, `bor der` and `vi bor der` are all
+  known
+
+#### Scenario: No upper length limit on attestation
+- **WHEN** a candidate's surface form is a word sequence longer than a few
+  words and that exact sequence appears in the learned material
+- **THEN** the candidate is known, with no length threshold above which
+  attestation stops being checked
+
+#### Scenario: Inflection closure is expansive
+- **WHEN** any inflected form of a lemma appears in the learned material
+- **THEN** every inflected form of that lemma is known
 
 ### Requirement: Partial, substring and head-only matching is prohibited
 The system SHALL NOT discard a candidate on the basis of a substring match,
 a prefix match, a match on its head alone, or a match on any subset of its
-tokens. Discarding a candidate SHALL require an exact lexeme signature match.
+tokens. Discarding a candidate SHALL require exact attestation of its own
+full surface sequence in the learned material.
 
 #### Scenario: A compound word sharing a prefix with a known word
 - **WHEN** the candidate `aleneforsørger` is judged against known material
@@ -76,27 +89,54 @@ tokens. Discarding a candidate SHALL require an exact lexeme signature match.
   containing `alle`
 - **THEN** the candidate is imported
 
-#### Scenario: An idiom built entirely from known words
-- **WHEN** the candidate `bli kvitt` is judged and every one of its tokens
-  appears in known material, but the phrase itself does not
-- **THEN** the candidate is imported and flagged, not discarded
+#### Scenario: An idiom whose words are known but which is not itself attested
+- **WHEN** the candidate `bli klar over` is judged, every one of its tokens
+  appears in the learned material, but that sequence does not
+- **THEN** the candidate is imported, not discarded
 
-### Requirement: The known-set is drawn only from unambiguously Norwegian positions
-The system SHALL build the set of already-known lexemes from positions in the
-existing learned material that are unambiguously Norwegian, and SHALL NOT
-treat text from explanatory prose or answer fields as Norwegian vocabulary.
+### Requirement: Norwegian text is identified by corpus scoring, not by card structure
+The system SHALL decide whether a line of the learned material is Norwegian
+by scoring its words against a Norwegian lexicon, and SHALL NOT decide it
+from the card's deck, its field names, or any other structural property of
+the card.
 
 #### Scenario: A Norwegian-English homograph appearing in English prose
 - **WHEN** a Norwegian candidate coincides with an English word that appears
-  frequently in the learned material's explanatory prose
+  in the learned material's explanatory prose
 - **THEN** the candidate is not discarded on the basis of those prose
   occurrences
+
+#### Scenario: No deck or field is excluded wholesale
+- **WHEN** a deck contains a mixture of vocabulary cards and
+  grammar-explanation cards
+- **THEN** its vocabulary cards still contribute to the known-set, with no
+  deck or field excluded in its entirety
+
+#### Scenario: Inline markup does not fragment a line
+- **WHEN** a line of explanatory prose contains inline emphasis markup
+- **THEN** the line is scored as a whole rather than split into fragments at
+  the markup boundaries
 
 #### Scenario: Stabbur's own previously-published content is excluded
 - **WHEN** the known-set is extracted from a bundle that also contains cards
   previously generated from stabbur's own notes
 - **THEN** those cards are excluded, so the import does not treat its own
   prior output as pre-existing knowledge
+
+### Requirement: A deny-list vetoes weak evidence only
+The system SHALL maintain a reviewable list of words that must not be
+discarded on weak evidence, and SHALL NOT allow that list to override direct
+evidence that the learned material teaches the word as its own subject.
+
+#### Scenario: A listed word that the learned material teaches directly
+- **WHEN** a listed word appears in the learned material as a dedicated
+  vocabulary entry with its own gloss
+- **THEN** it is known, and its presence on the list does not prevent that
+
+#### Scenario: A listed word appearing only in foreign-language prose
+- **WHEN** a listed word appears in the learned material only inside
+  explanatory prose in another language
+- **THEN** it is imported, not discarded
 
 ### Requirement: Uncertainty always resolves toward importing
 The system SHALL import and flag a candidate whenever any step of its

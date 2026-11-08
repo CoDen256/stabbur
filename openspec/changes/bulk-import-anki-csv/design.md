@@ -230,6 +230,63 @@ output*, not pristine stock — the C2x decks are the tell.
 **Cross-source overlap**: 2,510 lexemes appear in exactly 2 sources, 733 in
 3, 423 in all 4. Merging is the common case, not the exception.
 
+**Correction (operator review, section 5) — a design change, not a bug.**
+Reviewing `judge`'s output, the operator found ~22 obviously-known words
+verdicted `import` (`bil`, `bo`, `by`, `jente`, `tirsdag`, `spise`, `vei`,
+`vente`, `koselig`, `den`, `det`, `i`, `men`, `over`, `to`, ...).
+Investigation found three causes, only one of which was an implementation
+error:
+
+1. **`_EXCLUDED_PROSE_DECKS` (implementation error).** `stock.py` excluded
+   `A03`/`A04`/`A06`/`C01` wholesale, its comment asserting they are "tiny
+   (35 cards total)". They hold **160** cards, and `A03` "TOP 50 NOUNS",
+   `A04` "TOP 40 VERBS", `A06` "TOP 20 ADJECTIVES" are 90%/88%/83% clean
+   vocabulary cards (`en dag`, `en mann`, `et barn`, `å være`, `å ha`,
+   `god, godt, gode`) — the three most elementary vocabulary decks in the
+   bundle, excluded because each carries ~5 interleaved grammar cards. All
+   9 of the operator's "missed entirely" words are dedicated headword cards
+   in them, 9 for 9. This repeats a trap recorded in the original
+   exploration ("shape varies within a deck, not just across them — A03
+   'TOP 50 NOUNS' has grammar Q&A interleaved"), and the justifying number
+   was wrong by 4.5x and unverified.
+2. **Deny-list ordering (design error, in D5 as written).** `judge.py`
+   checks the deny-list *before* exact-match, so it wins unconditionally —
+   exactly what D5/task 4.3 specified ("entries here can NEVER cause an
+   auto-skip"). That instruction was wrong: 11 of the 17 entries are taught
+   by stock as dedicated cards (`N='i' E='in'`, `N='to' E='2'`,
+   `N='det' E='it, that'`, `N='men' E='but'`, ...). No English-prose leak
+   can fabricate `N='i', E='in'`. The deny-list must veto **weak** evidence
+   only, never **strong** evidence, and therefore belongs *after* the
+   known-set check, not before.
+3. **The approach itself (the substantive finding).** This was the 7th
+   extraction bug on this change, and every one was found by the operator
+   eyeballing output rather than by a test. That is diagnostic, not
+   coincidental: D5-as-written asked for a clean lexeme set to be extracted
+   from 2,790 heterogeneous HTML cards, which has **no ground truth** — "is
+   the known-set correct?" is unfalsifiable, so every error stays invisible
+   until a human recognises a familiar word in the wrong bucket. Measured
+   against that: one rule over `N`-side first lines, with no deck
+   exclusions and no field-role logic at all, recovered all 19 reported
+   words and leaked zero English. The entire apparatus that produced the
+   bugs — `A`-field role detection, `_EXCLUDED_PROSE_DECKS`,
+   `_ALWAYS_MINE_E_DECKS`, the `B10`/`B11` special cases — was not earning
+   its complexity.
+
+The operator then stated the knowledge model precisely, and it is stronger
+and simpler than what D3/D5 encoded: *"I know every Norwegian word that
+appears in the stock cards, and every combination that is still there."*
+Given `legge til noen i kopi`, that means `legge`, `legge til`, `noen`,
+`kopi`, `i`, and the whole phrase are all known — but `legge an`, which is
+**not** attested anywhere in stock, is not. Given `Vi bor der`, `vi`, `bor`
+(and its inflections), `der`, `vi bor`, `bor der` and the full sentence are
+all known.
+
+**D3 and D5 are superseded by D13** accordingly. Note the scale: the
+`_EXCLUDED_PROSE_DECKS` bug alone accounts for only 73 of 9,009 signatures
+(~1%), but they are the most elementary words in the language — the bug's
+*impact* is not proportional to its *count*, and a fix must not be judged
+by how little the skip rate moves.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -321,6 +378,15 @@ stored separately from every derived table.
 
 ### D3 — The comparison unit is a lexeme signature; substring matching is prohibited
 
+> **SUPERSEDED by D13 (operator review, section 5).** The anti-substring and
+> anti-prefix prohibitions below still hold verbatim and are unchanged. What
+> is superseded is the *positive* skip rule: an exact lexeme-signature match
+> against an extracted lexeme set is replaced by attestation against stock's
+> Norwegian text. The measured consequence is that 8 of the regression cases
+> this section lists as "must import" invert to "must skip", because stock
+> does in fact attest them — see D13.
+
+
 ```
 signature = (head_lemma, ordered_particles, reflexive, obligatory_complements)
 
@@ -388,6 +454,17 @@ looks plausible.
 
 ### D5 — All stock content is known, but only unambiguously-Norwegian positions are extracted
 
+> **SUPERSEDED by D13 (operator review, section 5).** The premise of this
+> section — all stock content is known, no taught/encountered distinction —
+> survives and is strengthened. What is superseded is the *mechanism*:
+> position-based extraction (field-role, deck exclusions, high-confidence
+> positions) is replaced by attestation over language-scored text, and the
+> deny-list moves from "can never auto-skip" to "vetoes weak evidence only".
+> The two rejected approaches recorded below (HTML emphasis; field-role)
+> remain rejected — field-role is now rejected outright rather than
+> "works, partially".
+
+
 The operator knows the entire stock deck in detail, including its sentences,
 rules, pronunciation and listening material. There is therefore **no
 taught-versus-encountered distinction** and no card-template classification —
@@ -438,7 +515,9 @@ This is also what makes the whole design robust to its own weakest parts
 (D4's missing oracle, D5's residual leakage): their failures are routed into
 the harmless direction by construction.
 
-The measured consequence, on the looser D5 variant:
+The measured consequence, on the looser D5 variant (**superseded — these
+figures describe D5's extraction, not D13's attestation; see D13 for the
+current 1,683 / 7,326 split**):
 
 ```
 candidates                                     9,129
@@ -561,8 +640,110 @@ decides inclusion; stabbur's own draft→ready pass decides correctness. These
 are different judgements by different criteria and are deliberately not
 collapsed.
 
+### D13 — The known-set is attestation over stock's Norwegian text (supersedes D3's skip rule and D5's extraction)
+
+**The knowledge model, as the operator states it:** every Norwegian word
+appearing anywhere in the stock cards is known, together with every
+combination of words that is actually attested there — and nothing that is
+not attested.
+
+```
+stock contains  "legge til noen i kopi"
+  known         legge · legge til · legge til noen · legge til noen i
+                legge til noen i kopi · noen · kopi · i
+  NOT known     legge an          (no such sequence anywhere in stock)
+
+stock contains  "Vi bor der"
+  known         vi · bor · der · vi bor · bor der · vi bor der
+                + every inflection of bo, since bor attests the lemma
+```
+
+So the known-set is two sets, both derived with **no card-template
+classification, no deck exclusions, and no field-role mapping**:
+
+```
+KNOWN_TOKENS   every token of every Norwegian-classified line, closed
+               over inflection (D13.3)
+KNOWN_NGRAMS   every contiguous word sequence of every Norwegian-classified
+               line, length 2..line length — NO upper cap (D13.2)
+```
+
+A candidate is skipped iff: single-word → its lemma is in `KNOWN_TOKENS`;
+multiword → its surface sequence is in `KNOWN_NGRAMS`. Nothing else skips.
+
+**D13.1 — Language is scored per line against a corpus, not inferred from
+card structure.** Each stock line is scored against a Norwegian lexicon
+built from the five *import sources'* own Norwegian fields (8,026 tokens —
+the sources are themselves a Norwegian dictionary), plus an English
+stop-word count. A line is Norwegian when its lexicon share is high and its
+English-stopword share is low; short lines (<3 words) require unanimity.
+
+This is the decisive structural change: **it requires no understanding of
+stock's card templates whatsoever.** Field-role, the `A` field, deck
+identity and card shape all stop mattering, which removes the entire
+category of bug that produced corrections 1–7. It is also testable in a way
+the old approach was not — "is this line Norwegian?" has a checkable answer,
+whereas "is the extracted lexeme set correct?" did not.
+
+**D13.2 — Lines, with inline tags removed, not split on.** Measured
+hazard, and it bit twice: stripping inline `<b>`/`<span>` by replacing them
+with a separator shatters English prose into 1-word fragments, and a lone
+`and` then scores 100% Norwegian because *duck* is in the lexicon. 4,584 of
+6,438 "Norwegian" segments came out 1–2 words long under that handling.
+Removing inline tags (and splitting only on `<br>`) drops leakage to
+near-zero: `the` 0, `is` 2, `that` 0, `and` 4, `man` 7, `a` 39.
+
+N-grams are capped only by line length. An earlier 2–5-word cap was wrong:
+the operator's rule covers full sentences (`vi bor der`) and every subset of
+them, and stock's Norwegian text is small enough (~3,154 lines) that
+unbounded n-grams are cheap.
+
+**D13.3 — Inflection closure is expansive, not restrictive.** If any
+inflected form attests a lemma, every inflected form of that lemma is known.
+This inverts how the form→lemma map (D4) was being used: it previously
+narrowed matching, and now it widens it. `bor` in a stock sentence therefore
+makes `bo`, `bodde`, `har bodd` all known.
+
+**D13.4 — The deny-list vetoes weak evidence only.** It stays (operator
+decision) but moves *after* the known-set check and applies only where
+evidence is weak. 11 of its 17 entries are words stock teaches as dedicated
+cards; blocking those was producing guaranteed false imports of the most
+common words in the language. Residual leakage it now mops up is `a` (39),
+`man` (7), `and` (4).
+
+**Measured effect**, distinct signatures (9,009):
+
+```
+                     skip     review queue
+current (D3/D5)     1,235         7,774      13.7%
+D13                 1,683         7,326      18.7%
+```
+
+The queue shrinks by 448, and — far more importantly — stops containing
+`bil`, `bo`, `by`, `dag`, `mann`, `barn`.
+
+**Known open item carried into implementation:** 96 signatures that skip
+today via `exact-match` are **not** attested under D13. Whether those are
+genuine finds the old extractor got right, or artifacts of it, is unresolved
+and must be inspected before switching (task 4.12) rather than discovered
+afterward.
+
+**What D13 does not change:** D3's prohibitions survive intact. No
+substring, prefix, head-only or token-subset match may ever cause a skip.
+`aleneforsørger` and `allerede` still import; `legge an`, `legge om`,
+`legge ved`, `gi opp`, `dø ut`, `bytte ut`, `låne ut`, `finne fram`,
+`bli klar over` and `bli lei av` all still import, verified. A multiword
+candidate is skipped only by exact attestation of its own full sequence —
+never because its parts are known.
+
 ## Risks / Open Questions
 
+- **D13 supersedes D3's skip rule and D5's extraction** (see the section-5
+  correction in Context). Risks below written against D5's position-based
+  extraction are annotated where they no longer apply.
+- **96 signatures skip today via `exact-match` but are not attested under
+  D13.** Unresolved: genuine finds, or artifacts of the old extractor? Must
+  be inspected before switching (task 4.12).
 - **The known-set is the only part that can lose data.** D5's residual
   English leakage and D4's incomplete lemma resolution both feed it. Mitigated
   by restricting extraction to high-confidence positions, the homograph

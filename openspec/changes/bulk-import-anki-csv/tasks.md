@@ -36,6 +36,21 @@
 
 ## 4. Known-set extraction and judging
 
+> **SUPERSEDED by section 4b (design D13).** Tasks 4.1-4.8 below are left in
+> place as the record of what was built and what it cost; **do not use them as
+> the specification for new work.** In particular **4.7's regression list now
+> asserts the wrong answers**: 8 of its cases (`legge til`, `legge seg`,
+> `legge merke til`, `legge til noen i kopi`, `bli kvitt`, `bekymre seg`,
+> `bestemme seg`, `regne ut`) are attested in stock and must now **skip**, not
+> import. An agent that makes 4.7 green as written will drive the output
+> further from correct. Use 4b.
+>
+> Of the code: `stock.py`'s field-role/deck-exclusion machinery is deleted
+> (not corrected); `lexeme.py`'s signature builder is retained for merge
+> (section 5) but no longer decides skips; `judge.py` is rewritten; the
+> deny-list data file is kept but moves in the ladder.
+
+
 - [x] 4.1 Stock extractor over `~/mjolnir/index.android.bundle.exploded/2113.js` (not present at that literal path on this operator's machine — see design.md's implementation-correction note for the real path and `STABBUR_IMPORT_STOCK_BUNDLE`). **Exclude decks `C2*`** — those cards are stabbur's own P4 seed, not stock (2,801 entries → 11 in `C2*`, not 13 → 2,790 stock cards, not 2,788; corrected, see design.md).
 - [x] 4.2 Extract only high-confidence Norwegian positions (design D5): vocabulary headwords, inflection lines, and Norwegian-sentence `N` fields. **Exclude answer and prose fields entirely.** Do not use HTML emphasis markup as a language signal — it was measured to carry none (28% vs 25%). **Corrected after initial implementation** (found by the operator eyeballing `normalized`, not by any test): field-role was first keyed off the card's `A` field, which turned out to be unrelated to language location — ~785 cards (`B01`-`B12`, `A07`, `A10`, `Z01`) were silently excluded entirely, including common known vocabulary (`trene`, `viktig`, `handle`, `hjelp`, ...). Re-implemented per design D5's own stated rule — content-based: does `N`'s first line open with an English instruction/question — with two small scoped exceptions (`B10`/`B11`: no per-card opener at all; `A03`/`A04`/`A06`/`C01`: confirmed grammar-explanation prose, excluded). See design.md's section 4 implementation-correction note.
 - [x] 4.3 Hand-written NO/EN homograph deny-list (`and`, `to`, `for`, `man`, `i`, `form`, …) — entries on it can never auto-skip. Keep it as a reviewable data file, not inline constants.
@@ -50,9 +65,26 @@
   - `and` (duck) is **not** auto-skipped. Measured: with parenthetical asides stripped before tokenizing (task 4.2), "and" does not actually leak into the known-set from the one identified source (`kvitt, kvitt, kvitt (no comparative and superlative)`) — the deny-list is verified as a working safety net (test asserts a denylisted lemma can never produce a skip verdict even when forced into the known-set), not currently load-bearing for this specific word.
 - [x] 4.8 Dump the full skipped set to a reviewable log and spot-check it before any push (design's first stated risk — the known-set is the only part that can lose data). **This spot-check, plus the operator's own direct review of `normalized`, caught four real bugs** (see design.md's section 4 implementation-correction note): a leading `en`/`et`/`ei` was being treated as the signature head instead of stripped like `å`; the freq6k paradigm miner's flat form→lemma map let one word's inflected form overwrite a different word's own standalone identity (`når`→`nå`, `lyst`→`lys`, …); parenthetical-stripping added to fix the `and` leak was also discarding C03's `(som om)` in `å late (som om)` as if it were an aside, when it's the verb's own defining complement; and — the largest by far — field-role extraction was keyed off the card's `A` field instead of `N`'s own content, silently excluding ~785 cards' worth of genuinely known vocabulary across a dozen decks. All four fixed; the distinct-lexeme figure in 3.9/4.4 moved from 9,270 (looked plausible, was wrong) to the corrected 7,582, and the measured auto-skip rate moved from 22.2% to 22.7% after the field-role fix.
 
+## 4b. Known-set rebuild under D13 (attestation)
+
+- [ ] 4b.1 **Delete, do not fix**, `stock.py`'s `_EXCLUDED_PROSE_DECKS`, `_ALWAYS_MINE_E_DECKS`, the `A`-field role logic and every per-deck special case. D13 requires no knowledge of card structure; leaving any of it in place reintroduces the bug family that produced corrections 1-7. Keep only the `C2*` exclusion (stabbur's own seed) from task 4.1.
+- [ ] 4b.2 Build the Norwegian lexicon from the **import sources' own** Norwegian fields (`normalized.text`, ~8,026 tokens). The stock bundle contributes nothing to this lexicon — that direction of dependency is what makes the language test independent of stock's structure.
+- [ ] 4b.3 Line extraction from stock: split on `<br>` only; **remove** inline tags (`<b>`, `<span>`, …) rather than splitting on them. This is load-bearing — splitting fragments English prose into 1-word pieces, and a lone `and` then scores 100% Norwegian because *duck* is in the lexicon. Measured: 4,584 of 6,438 "Norwegian" segments came out 1-2 words under the wrong handling.
+- [ ] 4b.4 Per-line language score (D13.1): Norwegian when lexicon share is high and English-stopword share is low; lines under 3 words require unanimity. Assert the leakage ceiling on the resulting token set — `the` 0, `is` ≤2, `that` 0, `and` ≤4, `man` ≤7, `a` ≤39.
+- [ ] 4b.5 `KNOWN_TOKENS` = every token of every Norwegian line, **closed expansively over inflection** (D13.3): if any form attests a lemma, every form of that lemma is known. This inverts how D4's form→lemma map was used — it previously narrowed matching and must now widen it.
+- [ ] 4b.6 `KNOWN_NGRAMS` = every contiguous word sequence of every Norwegian line, length 2..line length, **no upper cap** (D13.2). The operator's rule covers full sentences and every subset of them; stock's Norwegian text (~3,154 lines) makes this cheap.
+- [ ] 4b.7 Rewrite `judge`: skip iff (single-word → lemma in `KNOWN_TOKENS`) or (multiword → surface sequence in `KNOWN_NGRAMS`). Nothing else may skip. Keep the explicit structural test that no substring/prefix/head-only/token-subset comparison exists in the skip path.
+- [ ] 4b.8 Move the deny-list **after** the known-set check (D13.4) — it vetoes weak evidence only and must never override attestation. Verify the 11 entries stock teaches directly (`i`, `to`, `det`, `den`, `er`, `om`, `så`, `men`, `over`, `under`, `for`) now skip, and the 6 it does not (`and`, `man`, `form`, `that`, `a`, `us`) still import.
+- [ ] 4b.9 Replace 4.7's regression list. Must **skip**: `legge til`, `legge seg`, `legge merke til`, `legge til noen i kopi`, `bli kvitt`, `bekymre seg`, `bestemme seg`, `bli med`, `regne ut`, `allerede`, plus every word from the operator's report — `bare`, `bil`, `bo`, `by`, `den`, `der`, `det`, `hvor`, `i`, `jente`, `men`, `over`, `tirsdag`, `spise`, `vei`, `vente`, `vil`, `koselig`, `to`. Must **import**: `legge an`, `legge om`, `legge ved`, `gi opp`, `dø ut`, `bytte ut`, `låne ut`, `finne fram`, `bli klar over`, `bli lei av`, `aleneforsørger`, `and`, `man`, `form`.
+- [ ] 4b.10 Assert the subset rule directly: stock's `Vi bor der` makes `vi`, `bor`, `der`, `vi bor`, `bor der`, `vi bor der` all known, and `bo`/`bodde`/`har bodd` known via 4b.5's closure.
+- [ ] 4b.11 Sentence candidates are **not** force-imported any more. The `sentence-shaped` rule is removed from the skip path — a1_31k's 1,473 sentence candidates are attestation-checked like everything else (23 of them are attested and must skip). `type=listening` routing (task 3.8) is unaffected; this is only about the verdict.
+- [ ] 4b.12 **Before switching**: 96 signatures skip today via `exact-match` but are **not** attested under D13. Inspect them and record whether they are genuine finds the old extractor got right (→ D13 needs widening) or artifacts of it (→ expected loss). Do not switch over without this written down — it is the one place D13 could be *worse* than what it replaces.
+- [ ] 4b.13 Re-run `key` + `judge` only. `ingest` and `normalize` (15,262 rows) are unaffected, and `decision` must be untouched — this is the payoff of D2/task 1.3 and is the check that those decisions were implemented correctly.
+- [ ] 4b.14 Expected funnel after the switch: skip 1,235 → ~1,683 of 9,009 distinct signatures (13.7% → 18.7%), review queue 7,774 → ~7,326. **Do not judge the fix by this delta** — the 73 signatures from the deck-exclusion bug alone are ~1% of the total but are the most elementary words in the language. Judge it by 4b.9 and by re-reading the skipped set (4.8's procedure, which remains in force).
+
 ## 5. Merge
 
-- [ ] 5.1 Group `normalized` by lexeme signature; one `candidate` per group (design D8).
+- [ ] 5.1 Group `normalized` by lexeme signature; one `candidate` per group (design D8). The signature keeps this merge role under D13 — only its *skip* role is superseded.
 - [ ] 5.2 Field-level priority `NTNU > A1 > core6k > freq6k > CSV`; highest-priority non-empty value wins. No averaging, concatenation or voting.
 - [ ] 5.3 Retain losing non-empty values on the candidate and flag it conflicted — do not discard them.
 - [ ] 5.4 Verify against the measured overlap (2,510 lexemes in exactly 2 sources, 733 in 3, 423 in all 4) that merging is happening rather than silently producing duplicates.
