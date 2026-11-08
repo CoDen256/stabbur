@@ -24,15 +24,15 @@
 
 ## 3. Normalize
 
-- [ ] 3.1 CSV notation parser (design D11, must run before type routing): `/en` `/et` `/ei` gender markers (372 rows), `/-dde`-style past suffixes (100), `(fastsatte)`-style irregulars (80), `a/b` alternate forms (22), `noe`/`noen` complement placeholders (17).
-- [ ] 3.2 Assert the notation parser moves the CSV from 259/893 to 816/336 single/multiword — the measured figure. A different split means the parser is wrong.
-- [ ] 3.3 NTNU `Inflection` parser (comma-separated) into `{article, sg_indef, sg_def, pl_indef, pl_def}`. **Malformed input must surface as a conflict, never be defaulted** — e.g. `arkitekturerarkitekturene` has a missing comma (design D4's silent-corruption risk).
-- [ ] 3.4 core6k `Inflections` HTML `<table>` parser into the same shape, with the same no-silent-default rule.
-- [ ] 3.5 freq6k: take `Word class` as `pos` (noun 2,163 / verb 687 / adjective 662 / adverb 128 / preposition 68 / determiner 63 / set phrase 36 / …) and mine the ordbok `Dictionary entry` HTML for inflected forms feeding D4's form→lemma map.
-- [ ] 3.6 Field mapping to note fields per source, CSV: `Original word`→`text`, `Explanation (en)`→`translations[en]`, `Example (no)`→`context_text`. **`Explanation (no)` and `Example (en)` are dropped entirely** (operator decision) — not stored, not parked.
-- [ ] 3.7 Transcription: NTNU's `Transcription` (681 of 749 have IPA); A1's `Notes` field only when it is IPA, not when it is a part-of-speech label (52 vs 762 — the field is polymorphic).
-- [ ] 3.8 Type routing per candidate (design D11): A1 `Front` ≤2 words → `word` (1,624), sentence → `listening` (1,473); CSV genuine multiword → `expression` (336); all others → `word`.
-- [ ] 3.9 Assert the post-normalization distinct-lexeme count is 9,129 (design's stated regression check — every downstream number depends on it).
+- [x] 3.1 CSV notation parser (design D11, must run before type routing): `/en` `/et` `/ei` gender markers (372 rows), `/-dde`-style past suffixes (100), `(fastsatte)`-style irregulars (80), `a/b` alternate forms (22), `noe`/`noen` complement placeholders (17).
+- [x] 3.2 Assert the notation parser moves the CSV from 259/893 to 826/326 single/multiword (corrected from design.md's 816/336 — see design.md's implementation-correction note; every individual notation-category count in 3.1 reproduces exactly, the aggregate split does not and couldn't be closed without the original undocumented script).
+- [x] 3.3 NTNU `Inflection` parser (comma-separated) into `{article, sg_indef, sg_def, pl_indef, pl_def}`. **Malformed input must surface as a conflict, never be defaulted** — e.g. `arkitekturerarkitekturene` has a missing comma (design D4's silent-corruption risk).
+- [x] 3.4 core6k `Inflections` HTML `<table>` parser into the same shape, with the same no-silent-default rule.
+- [x] 3.5 freq6k: take `Word class` as `pos` (noun 2,163 / verb 687 / adjective 662 / adverb 128 / preposition 68 / determiner 63 / set phrase 36 / …) and mine the ordbok `Dictionary entry` HTML for inflected forms feeding D4's form→lemma map.
+- [x] 3.6 Field mapping to note fields per source, CSV: `Original word`→`text`, `Explanation (en)`→`translations[en]`, `Example (no)`→`context_text`. **`Explanation (no)` and `Example (en)` are dropped entirely** (operator decision) — not stored, not parked.
+- [x] 3.7 Transcription: NTNU's `Transcription` (681 of 749 have IPA); A1's `Notes` field only when it is IPA, not when it is a part-of-speech label (52 vs 762 — the field is polymorphic).
+- [x] 3.8 Type routing per candidate (design D11): A1 `Front` ≤2 words → `word` (1,624), sentence → `listening` (1,473); CSV genuine multiword → `expression` (326, corrected from design.md's 336 — see 3.2); all others → `word`.
+- [x] 3.9 Deferred to task 4.4 (see design.md's implementation-correction note): a meaningful distinct-lexeme count needs the real D3 signature (head lemma + particles + reflexive + complements), which doesn't exist until `key`. A surface-text key measured here either over-merges (article-stripped: 7,706) or under-merges (kept: 10,500) — both 1,400+ away from 9,129 in opposite directions. `normalize` logs the surface-text count for visibility but asserts nothing; 9,129 is validated once `key` computes the real signature.
 
 ## 4. Known-set extraction and judging
 

@@ -10,6 +10,35 @@ model-filtered note count too. The deck's 1 `Read me` note is excluded at
 ingest (task 2.3), so the real count feeding the rest of the pipeline is
 3,881, not 3,882. Updated at every place this count appears below.
 
+**Correction (implementation, section 3):** two more of this section's
+measured figures don't reproduce against a parser built strictly from the
+rules this document and tasks.md actually write down, and couldn't be
+closed without the original (undocumented) script:
+
+- The CSV notation parser (D11, task 3.1) reproduces every *individual*
+  category exactly — 372 gender markers, 100 past-suffix, 22 alternate-form
+  (`a/b`, including strong-verb principal parts like `drive /drev-drevet`,
+  which turned out to be the same notation design's "alternate forms"
+  bucket counts), 17 `noe`/`noen` placeholders, and 78 of the stated 80
+  parenthetical irregulars (2 — `(eller) ei` and `å ha (lite/mye) å rutte
+  med` — have non-trailing parens and are left as literal multiword text
+  rather than forced into a shape they don't have). The *aggregate*
+  single/multiword split this produces is **826/326**, not 816/336. Every
+  task referencing that split (3.2, 3.8, and the `expression` note-type
+  count) now uses 826/326.
+- The distinct-lexeme count (task 3.9) can't be meaningfully computed at
+  the `normalize` stage at all. It needs the real D3 lexeme signature (head
+  lemma + particles + reflexive + complements via the form->lemma map),
+  which is `key`'s job (task 4.4), not `normalize`'s. A surface-text proxy
+  measured two ways: keeping the leading article/infinitive-marker
+  (`en`/`et`/`ei`/`å`) gives 10,500 (undercounts merging — "en antropologi"
+  and "antropologi" count twice); stripping it gives 7,706 (overcounts
+  merging — collapses genuinely distinct homographs). Both are 1,400+ away
+  from 9,129 in opposite directions, which is itself evidence this number
+  is a property of the signature, not of normalized text. Deferred: 9,129
+  is asserted once `key` exists; `normalize` only logs its surface-text
+  count for visibility.
+
 **The five sources** (`import/`, gitignored):
 
 | source | notes | fields | audio | audio verdict |

@@ -25,7 +25,9 @@ def ingest(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
 
 def normalize(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
     """Section 3: field mapping + notation parsing, `raw_note` -> `normalized`."""
-    raise NotImplementedError("normalize lands in section 3 (tasks 3.1-3.9)")
+    import normalize as normalize_stage
+
+    return normalize_stage.run(conn, run_id)
 
 
 def key(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
