@@ -368,6 +368,20 @@ pre.json {
 .use-btn:hover { background: var(--ok); color: #fff; }
 .use-btn.used { background: var(--ok); color: #fff; }
 .suggest-error { font-size: 12.5px; color: var(--err); }
+.ipa-per-word { display: flex; flex-direction: column; gap: 10px; }
+.ipa-token-group { border-top: 1px dashed var(--border); padding-top: 6px; }
+.ipa-token-group:first-child { border-top: none; padding-top: 0; }
+.ipa-token-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--text-faint); margin-bottom: 3px;
+}
+.ipa-token-candidates .candidate-row:first-child { border-top: none; padding-top: 0; }
+.ipa-token-missing { font-size: 12.5px; color: var(--text-faint); font-style: italic; }
+.ipa-joined-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 0 0;
+  border-top: 1px solid var(--border);
+}
+.ipa-joined-label { font-size: 11px; color: var(--text-faint); font-style: italic; }
 .suggest-skel {
   height: 12px; border-radius: 4px; width: 60%;
   background: linear-gradient(90deg, var(--border-soft) 25%, var(--border) 37%, var(--border-soft) 63%);

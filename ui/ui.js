@@ -1383,6 +1383,15 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
       resultBox.appendChild(renderManualLinkState(provider, body.url, prefix));
       return;
     }
+    if (kind === 'ipa' && status === 200 && body && body.mode === 'per_word') {
+      if (!Array.isArray(body.tokens) || body.tokens.length === 0) {
+        resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
+        return;
+      }
+      resultBox.innerHTML = '';
+      resultBox.appendChild(renderIpaPerWord(body, provider, renderCandidate, prefix));
+      return;
+    }
     if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) {
       resultBox.innerHTML = `<div class="suggest-error">No entry found for "${escapeHtml(queryValue)}".</div>`;
       return;
@@ -1428,6 +1437,49 @@ function renderIpaCandidate(prefix) {
     });
     return r;
   };
+}
+
+// Renders smia's `mode: "per_word"` /ipa answer: one group per token (in
+// input order, a gap token shown unresolved rather than dropped), plus the
+// `joined` assembled-fill row when smia supplies one (design D2/D3 — stabbur
+// never synthesises a join itself when `joined` is absent).
+function renderIpaPerWord(body, providerName, renderCandidate, prefix) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ipa-per-word';
+  body.tokens.forEach((token) => {
+    const group = enrichEl(`
+      <div class="ipa-token-group">
+        <div class="ipa-token-label">${escapeHtml(token.text)}</div>
+        <div class="ipa-token-candidates"></div>
+      </div>
+    `);
+    const candidatesBox = group.querySelector('.ipa-token-candidates');
+    if (Array.isArray(token.candidates) && token.candidates.length > 0) {
+      token.candidates.forEach((c) => candidatesBox.appendChild(renderCandidate(c, providerName)));
+    } else {
+      candidatesBox.appendChild(enrichEl('<div class="ipa-token-missing">No entry</div>'));
+    }
+    wrap.appendChild(group);
+  });
+  if (body.joined) {
+    const joinedRow = enrichEl(`
+      <div class="ipa-joined-row">
+        <span class="ipa-joined-label">Assembled from single words:</span>
+        <span class="candidate-text">${escapeHtml(body.joined)}</span>
+        <span class="candidate-spacer"></span>
+        <button class="use-btn" type="button">Use</button>
+      </div>
+    `);
+    joinedRow.querySelector('.use-btn').addEventListener('click', (e) => {
+      const field = document.getElementById(`${prefix}_transcription`);
+      field.value = body.joined;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      markSuggestUsed(e.target);
+      enrichToast(`Transcription assembled from ${providerName}`);
+    });
+    wrap.appendChild(joinedRow);
+  }
+  return wrap;
 }
 
 function renderTranslationCandidate(prefix, lang) {
