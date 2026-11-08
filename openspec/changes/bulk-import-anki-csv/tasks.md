@@ -1,0 +1,89 @@
+## 0. Prerequisite
+
+- [ ] 0.1 `note-origin-provenance` is implemented and merged — `POST /api/notes` must accept `origin=import` + `import_ref` before stage 6 can run. Stages 1–5 can be built against it unmerged.
+
+## 1. Tool skeleton and candidate store
+
+- [ ] 1.1 Create the tool under `scripts/import/` — a CLI with one subcommand per stage (`ingest`, `normalize`, `key`, `judge`, `merge`, `review`, `push`) plus `status`. Not wired into `app.py`; nothing added to `compose.yaml`.
+- [ ] 1.2 SQLite candidate store at `import/candidates.db` (already gitignored via `/import`). Schema: `run`, `raw_note`, `normalized`, `signature`, `verdict`, `candidate`, `decision`, `log`.
+- [ ] 1.3 **`decision` is stored in its own table, keyed by lexeme signature — not on `candidate`.** This is what lets `judge`/`merge` be re-run without losing review (design D2). Enforce it: no stage other than `review` may write to `decision`.
+- [ ] 1.4 Every stage records start/end, counts in/out/discarded, and its `run_id` to `log`. `status` prints the per-stage state so an interrupted run is legible.
+- [ ] 1.5 Each stage is idempotent: re-running replaces only its own output table for that run, never a prior stage's and never `decision`.
+
+## 2. Ingest (verbatim)
+
+- [ ] 2.1 `.apkg` reader: open as zip, read `collection.anki21` (all four are legacy plain SQLite — confirm, do not assume), decode `notes.flds` on `\x1f`, resolve the note type from `col.models` to get field names.
+- [ ] 2.2 Media mapping: parse the `media` JSON (numeric key → original filename) to resolve `[sound:...]` references to archive members.
+- [ ] 2.3 Per-source field mapping into `raw_note`, preserving original values untouched:
+  - NTNU — `Audio, Article, Word, Transcription, Inflection, English` (749)
+  - A1 31k — `Front, Back, Notes, Level, Audio 1` (3,097)
+  - core6k — `Norwegian Core` + `Country` models only (6,383); **exclude the `Grammar` model** (225, design D9)
+  - freq6k — `6000 Most Frequent Norwegian Words` model only (3,882); exclude the `Read me` model
+- [ ] 2.4 CSV reader for the seven `Her-på-berget` chapter exports: skip blank rows; a row with only column 0 populated is a section header to carry down; `Kapittel` values are not all numeric (`11 Ord og begreper` exists) — do not parse them as ints.
+- [ ] 2.5 Assert expected row counts per source at the ingest boundary (749 / 3,097 / 6,383 / 3,882 / 1,152) so a parser regression fails loudly rather than silently importing less.
+
+## 3. Normalize
+
+- [ ] 3.1 CSV notation parser (design D11, must run before type routing): `/en` `/et` `/ei` gender markers (372 rows), `/-dde`-style past suffixes (100), `(fastsatte)`-style irregulars (80), `a/b` alternate forms (22), `noe`/`noen` complement placeholders (17).
+- [ ] 3.2 Assert the notation parser moves the CSV from 259/893 to 816/336 single/multiword — the measured figure. A different split means the parser is wrong.
+- [ ] 3.3 NTNU `Inflection` parser (comma-separated) into `{article, sg_indef, sg_def, pl_indef, pl_def}`. **Malformed input must surface as a conflict, never be defaulted** — e.g. `arkitekturerarkitekturene` has a missing comma (design D4's silent-corruption risk).
+- [ ] 3.4 core6k `Inflections` HTML `<table>` parser into the same shape, with the same no-silent-default rule.
+- [ ] 3.5 freq6k: take `Word class` as `pos` (noun 2,163 / verb 687 / adjective 662 / adverb 128 / preposition 68 / determiner 63 / set phrase 36 / …) and mine the ordbok `Dictionary entry` HTML for inflected forms feeding D4's form→lemma map.
+- [ ] 3.6 Field mapping to note fields per source, CSV: `Original word`→`text`, `Explanation (en)`→`translations[en]`, `Example (no)`→`context_text`. **`Explanation (no)` and `Example (en)` are dropped entirely** (operator decision) — not stored, not parked.
+- [ ] 3.7 Transcription: NTNU's `Transcription` (681 of 749 have IPA); A1's `Notes` field only when it is IPA, not when it is a part-of-speech label (52 vs 762 — the field is polymorphic).
+- [ ] 3.8 Type routing per candidate (design D11): A1 `Front` ≤2 words → `word` (1,624), sentence → `listening` (1,473); CSV genuine multiword → `expression` (336); all others → `word`.
+- [ ] 3.9 Assert the post-normalization distinct-lexeme count is 9,129 (design's stated regression check — every downstream number depends on it).
+
+## 4. Known-set extraction and judging
+
+- [ ] 4.1 Stock extractor over `~/mjolnir/index.android.bundle.exploded/2113.js`. **Exclude decks `C2*`** — those 13 cards are stabbur's own P4 seed, not stock (2,801 entries → 2,788 stock cards).
+- [ ] 4.2 Extract only high-confidence Norwegian positions (design D5): vocabulary headwords, inflection lines, and Norwegian-sentence `N` fields. **Exclude answer and prose fields entirely.** Do not use HTML emphasis markup as a language signal — it was measured to carry none (28% vs 25%).
+- [ ] 4.3 Hand-written NO/EN homograph deny-list (`and`, `to`, `for`, `man`, `i`, `form`, …) — entries on it can never auto-skip. Keep it as a reviewable data file, not inline constants.
+- [ ] 4.4 Lexeme signature builder (design D3): `(head_lemma, ordered_particles, reflexive, obligatory_complements)`, using D4's form→lemma map from source inflection data. No smia call anywhere in this tool.
+- [ ] 4.5 Judge: auto-skip **only** on exact signature match. Implement the prohibition explicitly — no substring, prefix, head-only, or token-subset comparison exists in the code path.
+- [ ] 4.6 Flag rules, each writing its evidence to `verdict`: same-head-different-particle (→ reference the stock relative, e.g. `legge til` → `cf. å legge til noen i kopi`), all-tokens-known-phrase-unknown, sentence-shaped.
+- [ ] 4.7 Regression tests on the measured cases from design D3 — these are the whole point of the change and must be asserted, not assumed:
+  - `legge til` imports despite stock teaching `legge`, `legge seg`, `legge merke til`, `legge vekt på`, `legge til noen i kopi`
+  - `bli kvitt`, `bli klar over`, `bekymre seg`, `bestemme seg`, `bli lei av` all import
+  - `gi opp`, `bli med`, `regne ut`, `dø ut`, `legge om`, `bytte ut`, `låne ut`, `finne fram` all import
+  - `allerede` imports (coincidental prefix of `alle`); `aleneforsørger` imports
+  - `and` (duck) is **not** auto-skipped despite 62 English-prose occurrences
+- [ ] 4.8 Dump the full skipped set to a reviewable log and spot-check it before any push (design's first stated risk — the known-set is the only part that can lose data).
+
+## 5. Merge
+
+- [ ] 5.1 Group `normalized` by lexeme signature; one `candidate` per group (design D8).
+- [ ] 5.2 Field-level priority `NTNU > A1 > core6k > freq6k > CSV`; highest-priority non-empty value wins. No averaging, concatenation or voting.
+- [ ] 5.3 Retain losing non-empty values on the candidate and flag it conflicted — do not discard them.
+- [ ] 5.4 Verify against the measured overlap (2,510 lexemes in exactly 2 sources, 733 in 3, 423 in all 4) that merging is happening rather than silently producing duplicates.
+- [ ] 5.5 Review ordering key (design D7): freq6k `Frequency index` → `CEFR::*` tag → CSV chapter/section. Candidates with no signal sort last.
+
+## 6. Review
+
+- [ ] 6.1 Review interface over the candidate store, ordered by 5.5, with accept / reject / edit per candidate. Local only — this is deliberately not in the stabbur UI (design D1).
+- [ ] 6.2 Each candidate shows: merged fields, source attribution per field, conflicts, verdict + evidence, the stock relative when flagged by 4.6, and whether human audio is attached.
+- [ ] 6.3 Decisions write only to `decision` (task 1.3), so re-running `judge`/`merge` preserves them.
+- [ ] 6.4 Resumable: reopening review returns to the queue position, with counts of reviewed/remaining.
+
+## 7. Push
+
+- [ ] 7.1 Audio upload first: NTNU (646) + A1 (2,924) only. **Reject core6k `hypertts-*` and freq6k `ordpar-*` entirely** (design D10). Upload as `blob/<sha256>` via the existing blob endpoint; identical recordings across sources collapse to one blob.
+- [ ] 7.2 `POST /api/notes` per accepted candidate with `status=draft`, `origin=import`, `import_ref={source, source_note_id, run_id}`. **Never `status=ready`**, under any flag or option.
+- [ ] 7.3 Store the returned note id on the candidate; skip candidates that already have one (design D12 — makes push resumable and the import reversible).
+- [ ] 7.4 Rate limiting is explicitly not implemented — no provider is called. If a local throttle against stabbur's own API proves necessary, that is an operational detail, not this change's requirement.
+
+## 8. Verification
+
+- [ ] 8.1 Dry-run the full pipeline through `merge` with no push; confirm the funnel against design D6's measured figures (~1,563 auto-skip, ~7,566 import) and investigate any material divergence rather than accepting it.
+- [ ] 8.2 Push a small accepted subset (≤20) to a throwaway stabbur database; verify `origin`, `import_ref`, `status=draft`, audio blob resolution, and that the notes are filterable by `origin=import` in the notes browser.
+- [ ] 8.3 Interrupt a push mid-run and re-run it; verify no duplicate notes are created.
+- [ ] 8.4 Re-run `judge` after editing the deny-list; verify review decisions survive and only verdicts change.
+- [ ] 8.5 Confirm no `type=grammar` note and no `grammar_rule` row is created by any stage (design D9).
+- [ ] 8.6 Confirm the tool makes no smia request and no outbound network call other than to stabbur's own API.
+- [ ] 8.7 Record in the design the actual final counts (imported, skipped, audio coverage) once a full run completes — the design's figures are pre-run measurements and should be annotated with outcomes, per this repo's convention of correcting findings in place.
+
+## 9. Open items to resolve during implementation
+
+- [ ] 9.1 Verify A1's audio is genuinely human by listening to a sample (design risk — if synthesised, coverage falls from ~35% to ~8%).
+- [ ] 9.2 Decide whether the ~1,100 sentence-shaped A1 candidates need near-duplicate detection against each other; lexeme signatures do not apply to sentences. Record the decision either way.
+- [ ] 9.3 Decide whether freq6k's 3,882 ordbok articles should serve as a general Norwegian lexicon across the whole pipeline rather than only for its own words.
