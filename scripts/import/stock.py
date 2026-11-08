@@ -14,22 +14,43 @@ is not at design.md's literal `~/mjolnir/...` path on this operator's
 machine — it's at `~/dev/mjolnir/index.android.bundle.exploded/2113.js`.
 Overridable via `STABBUR_IMPORT_STOCK_BUNDLE` for whoever runs this next.
 
-**Extraction is deliberately narrow (task 4.2, design D5's tightened
-rule):** only `A == "N"` entries (where `N` itself is the vocabulary
-headword/sentence — confirmed against real samples: `A=="N"` means N is
-plain Norwegian, `A` in `("E","X")` means N is an English question and the
-answer field is instructional prose) and deck `C03`'s tense-exercise
-answers (named explicitly in design D4) are read. Every other field on
-every other card — explanatory prose, grammar answers — is excluded
-entirely, not merely down-weighted. HTML emphasis markup is not used as a
-language signal (measured in design D5 to carry none).
+**Extraction is by field-role content, per design D5's own description —
+not by the card's `A` field (task 4.2, corrected; see design.md's section
+4 implementation-correction note).** `A` turned out to denote something
+about the card's own quiz-answer side, unrelated to which field holds
+Norwegian — confirmed directly: `A=="N"` cards exist where `N` opens with
+an English question (`B09`'s "What is the meaning of X when it's used as
+an adverb?"), and `A=="E"` cards exist across a dozen decks (`B01`-`B12`,
+`A07`, `A10`, `Z01`, ~785 cards total) where `N` opens with an English
+instruction ("List the four forms for:", "Provide the comparative and
+superlative forms of this adjective:", "Translate using the correct verb
+tense:") and `E` holds the actual Norwegian answer — common, high-value
+vocabulary (`trene`, `viktig`, `handle`, `hjelp`, `ball`, ...) that the
+`A`-keyed extraction was silently excluding in its entirety.
+
+Design D5's actual rule: "if `N` opens with an English instruction or
+question, Norwegian lives in `E` and in `N`'s continuation lines;
+otherwise `N` itself is Norwegian." Implemented as `_opens_with_english`
+(a word-list check on `N`'s first line) driving which fields get mined —
+`N` alone when it doesn't open with English (unchanged from the original
+A=="N" cards), or both `E` in full and `N`'s own continuation lines when
+it does. The continuation-lines half matters for a third shape (`B01`,
+pronunciation drills): `N` carries the instruction *and* the real
+Norwegian examples as continuation, while `E` is English phonetic
+commentary, not Norwegian at all — mining only `E` there would get
+nothing useful and mining only `N`'s first line would miss everything.
 
 Within an extracted field, parenthetical asides (`(no comparative and
 superlative)`, `(include the imperative)`) are stripped before
-tokenizing — these are the one concretely-identified source of English
-leakage into otherwise-Norwegian fields (e.g. "and" inside "kvitt, kvitt,
-kvitt (no comparative and superlative)"). This doesn't eliminate residual
-leakage in general (design D5's accepted risk) — the homograph deny-list
+tokenizing by default — this is the one concretely-identified source of
+English leakage into otherwise-Norwegian fields (e.g. "and" inside
+"kvitt, kvitt, kvitt (no comparative and superlative)"). Deck `C03` is
+a verified, narrow exception (task 4.2's own earlier correction): its
+conjugation answers use a parenthetical as the verb's own defining
+complement (`"å late (som om)"` = "to pretend", distinct from bare
+`"late"`), not an aside, so stripping there would silently drop an
+already-taught sense. This doesn't eliminate residual leakage in general
+for every other deck (design D5's accepted risk) — the homograph deny-list
 (task 4.3) is the actual safety net for whatever slips past it.
 """
 
@@ -60,6 +81,57 @@ WHITESPACE_RE = re.compile(r"\s+")
 
 EXCLUDED_DECK_PREFIX = "C2"
 C03_DECK_ID = "C03"
+
+# Instructional/question openers observed across the bundle's exercise
+# decks ("List the four forms for:", "Provide the comparative and
+# superlative forms of this adjective:", "Translate using...", "Turn the
+# following sentence...", "What is the meaning of...", "Read out,
+# focusing on..."). A word-list check on N's first line, not a general
+# English-language detector — matching design D5's own "if N opens with
+# an English instruction or question" phrasing, which names specific
+# recurring templates rather than prose detection in general.
+_ENGLISH_OPENER_RE = re.compile(
+    r"^(what|how|why|when|where|which|who|is|are|do|does|can|could|will|would|should|"
+    r"provide|list|identify|translate|turn|name|give|complete|fill|choose|select|write|"
+    r"form|conjugate|read|say|describe|explain|state|compare)\b",
+    re.IGNORECASE,
+)
+
+# B10/B11: uniformly A=="E" (80/80, 115/115, verified), N is a bare
+# English sentence to translate with no instructional opener at all —
+# the instruction lives only in the deck's own description, not
+# per-card, so no word-list check on N can catch it. A scoped exception,
+# not a reversion to trusting `A` generally (design.md's section 4
+# correction note explains why `A` is unreliable elsewhere).
+_ALWAYS_MINE_E_DECKS = frozenset({"B10", "B11"})
+
+# A03/A04/A06/C01: confirmed by direct content inspection to be grammar
+# EXPLANATION decks (multi-sentence prose about genders/pronouns/tone
+# rules), not vocabulary or inflection lists — design D5's own excluded
+# category ("excluding answer and prose fields entirely"). These also
+# open with an English question, so they'd otherwise be swept into the
+# same "mine E" path as the genuine vocabulary-drill decks. The <=6-word
+# segment filter in `extract_known_segments` catches most of their
+# length, but a short English grammar-term fragment can still slip under
+# it (e.g. C01's "comparative" as its own segment) — these 4 decks are
+# tiny (35 cards total) and unambiguous enough to exclude wholesale
+# rather than chase a general prose-vs-vocabulary classifier.
+_EXCLUDED_PROSE_DECKS = frozenset({"A03", "A04", "A06", "C01"})
+
+
+def _opens_with_english(field_html: str) -> bool:
+    first_line_html = re.split(r"<br\s*/?>", field_html, maxsplit=1, flags=re.IGNORECASE)[0]
+    first_line_text = TAG_RE.sub(" ", first_line_html).strip()
+    return bool(_ENGLISH_OPENER_RE.match(first_line_text))
+
+
+def _continuation(field_html: str) -> str:
+    """Everything in `field_html` after its first `<br>`-separated line —
+    where, on cards whose first line is an English instruction, the real
+    Norwegian content sometimes sits directly in `N` itself (design D5's
+    "and in N's continuation lines")."""
+    parts = re.split(r"<br\s*/?>", field_html, maxsplit=1, flags=re.IGNORECASE)
+    return parts[1] if len(parts) > 1 else ""
 
 
 def _load_raw_entries(path: Path) -> list[dict]:
@@ -173,17 +245,41 @@ def bootstrap_c03_lemma_map(cards: list[dict]) -> dict[str, str]:
 def extract_known_segments(cards: list[dict]) -> list[tuple[str, dict]]:
     """Returns (segment_text, evidence) pairs. `evidence` carries enough to
     build task 4.6's "cf. stock" references (deck/card id + the original
-    field text)."""
+    field text).
+
+    Field-role decided by `N`'s own content (design D5), not by the
+    card's `A` field — see the module docstring's section 4 correction
+    note for why `A` doesn't actually denote language location."""
     results = []
     for card in cards:
+        if card["DECK_ID"] in _EXCLUDED_PROSE_DECKS:
+            continue
         sources = []
-        if card["A"] == "N":
+        if _opens_with_english(card["N"]) or card["DECK_ID"] in _ALWAYS_MINE_E_DECKS:
+            # Norwegian lives in E in full, and sometimes in N's own
+            # continuation (pronunciation drills like B01, where E is
+            # English phonetic commentary rather than Norwegian at all).
+            strip_parens = card["DECK_ID"] != C03_DECK_ID
+            sources.append(("E", card["E"], strip_parens))
+            continuation = _continuation(card["N"])
+            if continuation:
+                sources.append(("N", continuation, True))
+        else:
             sources.append(("N", card["N"], True))
-        if card["DECK_ID"] == C03_DECK_ID:
-            sources.append(("E", card["E"], False))
 
         for field_name, field_html, strip_parens in sources:
             for segment in _segments(field_html, strip_parens=strip_parens):
+                # Grammar-explanation decks (A06, C01, ...) also open with
+                # an English question, but their answer is prose, not a
+                # vocabulary/inflection list — design's own stated
+                # validation measures known phrases at <=6 words, which
+                # doubles as a clean filter: prose sentences ("Norwegian
+                # can have a comparative form of adjectives.") run well
+                # past that, short vocabulary/inflection segments never
+                # do. Longer segments are dropped, not flagged — this is
+                # about what counts as "known", not a candidate verdict.
+                if len(segment.split()) > 6:
+                    continue
                 results.append(
                     (
                         segment,

@@ -64,13 +64,47 @@ def test_stock_excludes_c2x_decks(stock_cards):
     assert len(stock_cards) == 2790  # 2,801 raw - 11 C2x (design.md correction: not 13/2,788)
 
 
-def test_stock_only_extracts_from_a_is_n_and_c03(stock_cards):
+def test_stock_extraction_is_content_driven_not_a_field_driven(stock_cards):
+    """Regression: the first implementation keyed extraction off the
+    card's `A` field, assuming it denoted which field holds Norwegian.
+    It doesn't — found when the operator spot-checked `normalized` and
+    noticed common known words (trene, viktig, handle, hjelp, ...) never
+    appearing as known, despite being directly taught across ~785 cards
+    in B01-B12/A07/A10/Z01 that happen to have A=="E" (design.md's
+    section 4 correction note). Extraction must therefore produce
+    segments regardless of what `A` says for those decks, and must NOT
+    extract from the 4 confirmed grammar-explanation decks even though
+    they also open with an English question (A03/A04/A06/C01, prose
+    about genders/pronouns/tone rules, not vocabulary)."""
     segments = import_stock.extract_known_segments(stock_cards)
-    # every segment's evidence traces back to either an A=="N" card or deck C03
     by_card = {c["ID"]: c for c in stock_cards}
-    for _segment, evidence in segments:
-        card = by_card[evidence["card_id"]]
-        assert card["A"] == "N" or card["DECK_ID"] == "C03"
+
+    decks_with_segments = {by_card[ev["card_id"]]["DECK_ID"] for _segment, ev in segments}
+    assert "B02" in decks_with_segments  # A=="E" deck, previously fully excluded
+    assert "B05" in decks_with_segments
+    assert not decks_with_segments & import_stock._EXCLUDED_PROSE_DECKS
+
+    for _segment, ev in segments:
+        assert by_card[ev["card_id"]]["DECK_ID"] not in import_stock._EXCLUDED_PROSE_DECKS
+
+
+def test_previously_missing_common_vocabulary_is_now_known(stock_cards):
+    """The operator's own spot-check of `normalized` directly: these are
+    all words taught on A=="E" cards in decks the old A-field-driven
+    extraction never read at all."""
+    known_by_sig, _ = import_stock.build_known_signatures(stock_cards, {})
+    for word in ("trene", "viktig", "handle", "hjelp", "krig", "natt", "dele", "blid", "igjen", "gave"):
+        signature = lexeme.build_signature(word, {})
+        assert lexeme.signature_key(signature) in known_by_sig, f"{word!r} should be known from stock"
+
+
+def test_prose_leak_from_grammar_explanation_decks_is_excluded(stock_cards):
+    """C01's tone-rules explanation deck has a short, isolated English
+    grammar-term fragment ("comparative") that slips under the <=6-word
+    segment filter on its own — only the deck-level exclusion catches it
+    (design.md's section 4 correction note)."""
+    segments = [s for s, _ev in import_stock.extract_known_segments(stock_cards)]
+    assert not any("comparative" in s.lower() for s in segments)
 
 
 def test_stock_strips_parenthetical_asides_in_vocab_fields_but_not_in_c03(stock_cards, judge_fixtures):

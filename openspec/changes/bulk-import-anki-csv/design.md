@@ -99,6 +99,71 @@ spelled `late til` or `late som om` — but it was a real correctness gap
 in the known-set regardless, exactly the kind task 4.8 is there to catch
 before push, not after.
 
+**A fourth, substantially larger bug, found directly by the operator —
+not by any of this change's own tests or spot-checks.** Opening
+`normalized` and eyeballing it, the operator found dozens of
+unremarkable, common words they already knew (`trene`, `viktig`,
+`handle`, `hjelp`, `krig`, `natt`, `dele`, `blid`, `igjen`, `gave`, ...)
+that never showed up as auto-skipped. Investigation found the root
+cause: task 4.2's extraction keyed which field holds Norwegian off the
+card's own `A` field (`A=="N"` means mine `N`; otherwise, only deck
+`C03` was special-cased). That assumption is simply wrong. `A` turns out
+to denote something about the card's own quiz-answer side, unrelated to
+language location — confirmed two ways: `A=="N"` cards exist where `N`
+opens with an English question (`B09`'s "What is the meaning of X when
+it's used as an adverb?"), and `A=="E"` cards exist across roughly a
+dozen decks — `B01`-`B12`, `A07`, `A10`, `Z01`, **~785 cards, more than a
+quarter of the entire usable stock bundle** — where `N` opens with an
+English instruction ("List the four forms for:", "Provide the
+comparative and superlative forms of this adjective:", "Translate using
+the correct verb tense:") and `E` holds the actual Norwegian answer.
+Every one of those 785 cards was being silently excluded from the
+known-set in its entirety.
+
+Design D5's own text already states the correct rule — this was an
+implementation gap, not a design gap: "if `N` opens with an English
+instruction or question, Norwegian lives in `E` and in `N`'s
+continuation lines; otherwise `N` itself is Norwegian." Re-implemented
+per that description:
+
+- `stock._opens_with_english` — a word-list check on `N`'s first line
+  (`what/how/provide/list/translate/...`), replacing the `A`-field check
+  entirely.
+- When it matches: mine `E` in full, plus `N`'s own continuation (text
+  after the first line) — needed for a third shape found along the way,
+  `B01`'s pronunciation drills, where `N` carries the instruction *and*
+  the real Norwegian examples as continuation, while `E` is English
+  phonetic commentary and not Norwegian at all.
+- Two decks (`B10`, `B11`, 195 cards, verified 100% `A=="E"`) have no
+  instructional opener at all — the instruction lives only in the deck's
+  own description, never repeated per card — so they're a small, scoped
+  exception mined unconditionally, not a reversion to trusting `A`
+  generally.
+- Checked against design's own stated validation figures for this exact
+  heuristic (5,351 known single tokens, 4,290 known phrases ≤6 words):
+  landed at 2,931 / 2,380 — meaningfully higher coverage than before the
+  fix, but like several other figures in this change, not an exact
+  reproduction of the original undocumented script's output. Every stock
+  card now contributes at least one segment in some form, so the
+  remaining gap isn't wholesale deck exclusion; it's smaller
+  per-card differences this implementation can't fully close.
+- This broader extraction also pulled in genuine grammar-*explanation*
+  prose (decks `A03`, `A04`, `A06`, `C01` — confirmed by direct content
+  inspection: multi-sentence explanations of genders, pronoun tables,
+  tone rules, not vocabulary), which also open with an English question
+  and would otherwise leak through the same path — design's own excluded
+  category ("excluding answer and prose fields entirely"). A ≤6-word cap
+  on extracted segments (matching design's own phrase-length boundary)
+  catches most of this for free; the 4 decks above are small (35 cards
+  total) and unambiguous enough to exclude wholesale rather than build a
+  general prose-vs-vocabulary classifier for a long tail of edge cases.
+
+Net effect on the measured funnel: auto-skip moved from 3,381 (22.2%,
+the count after the first three corrections) to 3,464 (22.7%) — fewer
+candidates now get wrongly presented for re-review of material the
+operator already knows, which is the entire point of this change's
+known-set.
+
 Two more corrections, this time to task 4.7's worked regression
 examples, found by actually running the judge against the real stock
 bundle rather than re-deriving it from the earlier prose:
