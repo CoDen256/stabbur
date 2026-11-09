@@ -153,6 +153,13 @@
                     <option value="__custom__">Custom…</option>
                   </select>
                   <input id="e_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
+                  <div class="suggest-control" style="margin-top:8px;">
+                    <button type="button" class="suggest-toggle" data-suggest-toggle="e_pos_suggest">✨ Suggest part of speech<span class="count" id="e_pos_suggest_count" style="display:none"></span></button>
+                    <div class="suggest-control-divider"></div>
+                    <input type="text" class="suggest-query" id="e_pos_suggest_query" spellcheck="false">
+                    <button type="button" class="suggest-rerun-btn" data-suggest-rerun="e_pos_suggest" title="Re-run every provider">⟳</button>
+                  </div>
+                  <div class="suggest-panel" id="e_pos_suggest" data-kind="pos" data-prefix="e"></div>
                 </div>
               </div>
               <div class="field-row">
@@ -561,6 +568,13 @@
             </select>
             <input id="c_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
             <div class="inline-note">Picking a PoS fills in the right inflection fields below — nothing to remember by hand.</div>
+            <div class="suggest-control" style="margin-top:8px;">
+              <button type="button" class="suggest-toggle" data-suggest-toggle="c_pos_suggest">✨ Suggest part of speech<span class="count" id="c_pos_suggest_count" style="display:none"></span></button>
+              <div class="suggest-control-divider"></div>
+              <input type="text" class="suggest-query" id="c_pos_suggest_query" spellcheck="false">
+              <button type="button" class="suggest-rerun-btn" data-suggest-rerun="c_pos_suggest" title="Re-run every provider">⟳</button>
+            </div>
+            <div class="suggest-panel" id="c_pos_suggest" data-kind="pos" data-prefix="c"></div>
           </div>
           <div class="field"><label for="c_source_lang">Source language</label><input id="c_source_lang" type="text" value="no"></div>
           <div class="field"><label for="c_text">Text</label><textarea id="c_text" required></textarea></div>

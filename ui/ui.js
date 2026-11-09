@@ -56,6 +56,14 @@ function applyTypeFieldVisibility(prefix, type) {
   setFieldVisible(`${prefix}_lemma_field`, vis.lemma);
   setFieldVisible(`${prefix}_pos_field`, vis.pos);
   setFieldVisible(`${prefix}_transcription_field`, vis.transcription);
+  // Gated on whether this type has a pos at all, NOT on whether pos is
+  // currently set (that used to double as the section's visibility switch
+  // — ui.js:448 — which hid the "Look up paradigm"/"Suggest part of
+  // speech" controls themselves on exactly the no-pos note this change's
+  // whole-paradigm apply exists for, an unreachable chicken-and-egg found
+  // live while verifying task 4.1). The fields *inside* still only
+  // populate once a pos is set (updateEditInflectionFields and friends).
+  setFieldVisible(`${prefix}_inflections_field`, vis.pos);
 }
 
 // PoS select + "Custom…" text fallback, shared shape between the note
@@ -97,6 +105,59 @@ function wirePosCustomToggle(selectId, customId, onChange) {
     }
     if (onChange) onChange();
   });
+}
+
+// smia's `_pos_for()` fallback: the raw first ORDKLASSE token, for a
+// boy_gruppe `_SLOT_MAPS` doesn't shape-map. `substantiv`/`adjektiv`/`verb`/
+// `adverb` already arrive canonical from `_SLOT_MAPS` and pass through
+// unchanged below; `prep`/`konj`/`sbu` map cleanly onto the other two
+// canonical values `_SLOT_MAPS` never produces on its own, and `subst`
+// (invariable nouns, boy_gruppe `substantiv, ubøy`) is the same class as
+// plain `substantiv`, just a paradigm shape with nothing to fill — found by
+// querying the real table live (design.md Risks), not in the originally
+// proposed list. Every other raw token (`pron`, `det`, `interj`, `symb`,
+// `fork`, and rarer ones like `inf-merke`/`pref`) has no canonical
+// equivalent and is deliberately left unmapped — shown, never offered
+// (design D3). One map, used by both the whole-paradigm apply and the
+// part-of-speech suggest control, so they cannot disagree (task 3.3).
+const POS_FALLBACK_MAP = { prep: 'preposisjon', konj: 'konjunksjon', sbu: 'konjunksjon', subst: 'substantiv' };
+
+function canonicalPos(rawPos) {
+  if (!rawPos) return null;
+  const mapped = KNOWN_POS_VALUES.includes(rawPos) ? rawPos : (POS_FALLBACK_MAP[rawPos] || null);
+  console.assert(mapped === null || KNOWN_POS_VALUES.includes(mapped), `canonicalPos: non-canonical output for ${rawPos}`);
+  return mapped;
+}
+
+// The new-note form's PoS select is `c_pos` (no `_select` suffix, unlike
+// e_/t_) — a pre-existing naming inconsistency, not introduced here.
+function posFieldIdsFor(prefix) {
+  return prefix === 'c' ? { select: 'c_pos', custom: 'c_pos_custom' } : { select: `${prefix}_pos_select`, custom: `${prefix}_pos_custom` };
+}
+
+// Generic re-render of a form's inflection fields by prefix — the same
+// hide/show-by-shape logic every one of updateEditInflectionFields/
+// updateTriageInflectionFields/updateNewNoteInflectionFields already has,
+// factored out so the new pos-setting actions (whole-paradigm apply, pos
+// suggest) can drive all three forms without duplicating that glue or
+// touching those functions' existing call sites. The section's own
+// visibility is driven by type, not by pos (applyTypeFieldVisibility) —
+// this only (re)populates the fields inside it.
+function refreshInflectionFieldsForPrefix(prefix, pos, values) {
+  if (INFLECTION_SHAPES[pos]) renderInflectionFields(`${prefix}_inflections_fields`, pos, values);
+  else document.getElementById(`${prefix}_inflections_fields`).innerHTML = '';
+}
+
+// Carries forward whatever the operator already typed (if anything), else
+// the note's own stored inflections when the new pos matches what the note
+// already had — same carry-forward idiom as the existing manual pos-select
+// change handler, reused here so a pos set via apply/suggest doesn't drop
+// values whose keys exist in both the old and new shape (task 2.6).
+function carryForwardInflectionValues(prefix, newPos) {
+  const typedValues = readInflectionFields(`${prefix}_inflections_fields`);
+  if (Object.values(typedValues).some((v) => v)) return typedValues;
+  const note = prefix === 'e' ? currentNote : prefix === 't' ? currentTriageNote : null;
+  return (note && note.pos === newPos) ? note.inflections : null;
 }
 
 function authHeaders() {
@@ -447,7 +508,6 @@ function currentInflectionShapeField() {
 
 function updateEditInflectionFields(pos, values) {
   const shapedPos = INFLECTION_SHAPES[pos] ? pos : null;
-  document.getElementById('e_inflections_field').style.display = shapedPos ? 'block' : 'none';
   if (shapedPos) renderInflectionFields('e_inflections_fields', shapedPos, values);
   else document.getElementById('e_inflections_fields').innerHTML = '';
 }
@@ -1125,15 +1185,12 @@ function updateNewNoteFieldVisibility() {
   document.getElementById('c_grammar_rule_field').style.display = type === 'grammar' ? 'block' : 'none';
   if (type !== 'word') {
     setPosValue('c_pos', 'c_pos_custom', '');
-    document.getElementById('c_inflections_field').style.display = 'none';
     document.getElementById('c_inflections_fields').innerHTML = '';
   }
 }
 
 function updateNewNoteInflectionFields() {
   const pos = getPosValue('c_pos', 'c_pos_custom');
-  const shaped = !!INFLECTION_SHAPES[pos];
-  document.getElementById('c_inflections_field').style.display = shaped ? 'block' : 'none';
   renderInflectionFields('c_inflections_fields', pos);
 }
 
@@ -1359,7 +1416,8 @@ async function updateSuggestCounts() {
     const panel = btn && document.getElementById(btn.dataset.suggestToggle);
     const countEl = control.querySelector('.count');
     if (!panel || !countEl) return;
-    const count = (catalog[panel.dataset.kind] || []).length;
+    const catalogKind = panel.dataset.kind === 'pos' ? 'inflections' : panel.dataset.kind;
+    const count = (catalog[catalogKind] || []).length;
     countEl.textContent = String(count);
     countEl.style.display = count > 0 ? '' : 'none';
   });
@@ -1541,6 +1599,12 @@ function suggestFieldValue(prefix, field) {
 function defaultSuggestQuery(prefix, kind) {
   if (kind === 'inflections') return suggestFieldValue(prefix, 'lemma');
   if (kind === 'examples') return deriveExamplesQuery(suggestFieldValue(prefix, 'text'));
+  // The part-of-speech suggest control is the one deliberate exception to
+  // "exactly one named field, no fallback" above — it reuses the
+  // inflections lookup (there is no separate /pos endpoint, design D5) but
+  // defaults like every suggestion panel since lemma-first-suggestions:
+  // `lemma` first, `text` when there's no lemma yet (task 2.2).
+  if (kind === 'pos') return suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
   return suggestFieldValue(prefix, 'text');
 }
 
@@ -1576,7 +1640,7 @@ function smiaLangCode(sourceLang) {
 function enrichRequestFields(kind, prefix, queryValue, lang, limit) {
   const sourceLang = smiaLangCode(suggestFieldValue(prefix, 'source_lang'));
   if (kind === 'ipa') return { text: queryValue, lang: sourceLang };
-  if (kind === 'inflections') return { word: queryValue, lang: sourceLang };
+  if (kind === 'inflections' || kind === 'pos') return { word: queryValue, lang: sourceLang };
   if (kind === 'tts') return { text: queryValue, lang: sourceLang };
   if (kind === 'translations') return { text: queryValue, from: sourceLang, to: lang };
   if (kind === 'examples') return { text: queryValue, lang: sourceLang, limit };
@@ -1679,7 +1743,15 @@ function renderManualLinkState(provider, url, prefix) {
 // copying `defaultQuery`, so it reads unambiguously as "something
 // different," not a copy. Retrying uses the override's value if revealed
 // and non-empty, otherwise falls back to `defaultQuery`.
-function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang, initialForceRefresh, limit) {
+// `lookupKind` lets a panel request-shape as one kind (`kind`, used for
+// `enrichRequestFields`/the ipa-per-word branch below) while actually
+// fetching through a different, already-proxied endpoint — the pos
+// suggest control is the one case of this: it shapes its request like
+// `inflections` (there is no separate `/pos` route, design D5) but reads
+// as `kind: 'pos'` everywhere else (rendering, defaults) so it can't be
+// confused with the full paradigm panel. Defaults to `kind` so every
+// other caller is unaffected.
+function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCandidate, lang, initialForceRefresh, limit, lookupKind) {
   const row = enrichEl(`
     <div class="provider-row">
       <div class="provider-head">
@@ -1708,7 +1780,7 @@ function buildEnrichProviderRow(kind, provider, prefix, defaultQuery, renderCand
   async function fire(queryValue, forceRefresh) {
     resultBox.innerHTML = '<div class="suggest-skel"></div>';
     const fields = enrichRequestFields(kind, prefix, queryValue, lang, limit);
-    const { status, body } = await enrichLookup(kind, provider, fields, forceRefresh);
+    const { status, body } = await enrichLookup(lookupKind || kind, provider, fields, forceRefresh);
     const isManualLink = status === 200 && body && Array.isArray(body.candidates)
       && body.candidates.length === 0 && body.url && MANUAL_LINK_CAPTURE_ROUTES[provider];
     if (isManualLink) {
@@ -2022,6 +2094,42 @@ function renderExamplesCandidate(prefix) {
   };
 }
 
+// The part-of-speech suggest control's own candidate row — same `inflec-
+// tions` lookup as the paradigm panel (buildEnrichProviderRow's `lookup-
+// Kind`), rendering just the reported pos. Unlike the paradigm panel's
+// apply (D2, non-destructive), this control's "Use" is an explicit request
+// about the part of speech itself and SHALL overwrite (task 2.3). A class
+// with no canonical equivalent (design D3) shows the provider's own answer
+// with no "Use" offered at all.
+function renderPosCandidate(prefix) {
+  return (c, providerName) => {
+    const ids = posFieldIdsFor(prefix);
+    const currentPos = getPosValue(ids.select, ids.custom);
+    const mapped = canonicalPos(c.pos);
+    const metaBits = [];
+    if (!mapped) metaBits.push('no canonical part of speech');
+    else if (currentPos && currentPos !== mapped) metaBits.push(`note has: ${currentPos}`);
+    const r = enrichEl(`
+      <div class="candidate-row">
+        <span class="candidate-text">${escapeHtml(c.lemma || '')} · ${escapeHtml(c.pos || '—')}</span>
+        ${metaBits.length ? `<span class="candidate-meta">${escapeHtml(metaBits.join(' · '))}</span>` : '<span class="candidate-spacer"></span>'}
+        ${mapped ? '<button class="use-btn" type="button">Use</button>' : ''}
+      </div>
+    `);
+    const useBtn = r.querySelector('.use-btn');
+    if (useBtn) {
+      useBtn.addEventListener('click', () => {
+        setPosValue(ids.select, ids.custom, mapped);
+        refreshInflectionFieldsForPrefix(prefix, mapped, carryForwardInflectionValues(prefix, mapped));
+        document.getElementById(ids.select).dispatchEvent(new Event('input', { bubbles: true }));
+        markSuggestUsed(useBtn);
+        enrichToast(`Part of speech set to ${mapped} from ${providerName}`);
+      });
+    }
+    return r;
+  };
+}
+
 // Inflections stays read-only/copy-only by design (D-smia-enrichment-panel
 // fix #1) — providers disagree with each other and stabbur's own
 // PoS-keyed fields often enough that auto-fill would silently hide real
@@ -2111,10 +2219,41 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
 
       const block = enrichEl(`
         <div class="paradigm-candidate">
-          <div class="paradigm-candidate-head"><strong>${escapeHtml(c.lemma || '')}</strong> · ${escapeHtml(c.pos || '')}</div>
+          <div class="paradigm-candidate-head">
+            <span><strong>${escapeHtml(c.lemma || '')}</strong> · ${escapeHtml(c.pos || '')}</span>
+            <button class="apply-paradigm-btn use-btn" type="button" title="Set the part of speech (only if the note has none) and fill every matching form">Apply paradigm</button>
+          </div>
           ${rowsHtml}
         </div>
       `);
+      block.querySelector('.apply-paradigm-btn').addEventListener('click', (e) => {
+        const ids = posFieldIdsFor(prefix);
+        const currentPos = getPosValue(ids.select, ids.custom);
+        const mappedPos = canonicalPos(c.pos);
+        // D2: a paradigm apply only ever fills a blank pos — never
+        // overwrites one the operator already chose (task 1.3).
+        let resultingPos = currentPos;
+        if (!currentPos && mappedPos) {
+          setPosValue(ids.select, ids.custom, mappedPos);
+          resultingPos = mappedPos;
+          refreshInflectionFieldsForPrefix(prefix, mappedPos, null);
+          document.getElementById(ids.select).dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        let filled = 0;
+        if (resultingPos) {
+          Object.entries(paradigm).forEach(([key, value]) => {
+            const field = document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
+            if (!field) return;
+            field.value = value;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            filled += 1;
+          });
+        }
+        if (!currentPos && mappedPos) enrichToast(`Part of speech set to ${resultingPos}, ${filled} form(s) filled from ${provider}`);
+        else if (filled) enrichToast(`${filled} form(s) filled from ${provider}`);
+        else enrichToast(`Nothing to apply from ${provider}`);
+        markSuggestUsed(e.target);
+      });
       block.querySelectorAll('.copy-cell').forEach((cell) => cell.addEventListener('click', () => enrichCopy(cell.dataset.copy)));
       block.querySelectorAll('.fill-btn').forEach((btn) => btn.addEventListener('click', () => {
         const field = fieldFor(btn.dataset.fillField);
@@ -2265,14 +2404,23 @@ async function openSuggestPanel(panelEl, { forceRefresh = false } = {}) {
   panelEl.innerHTML = '<div class="suggest-head"><span>Loading providers…</span></div>';
 
   const catalog = await fetchEnrichProviders();
-  const providers = catalog[kind] || [];
+  // The pos suggest control has no catalog entry of its own — it piggybacks
+  // on whichever providers answer `inflections` (design D5, no new
+  // endpoint), so its provider list is read from there.
+  const providers = catalog[kind === 'pos' ? 'inflections' : kind] || [];
   panelEl.innerHTML = '';
 
   if (providers.length === 0) {
-    panelEl.appendChild(enrichEl(`<div class="suggest-error">No providers currently configured for ${escapeHtml(kind)}.</div>`));
+    panelEl.appendChild(enrichEl(`<div class="suggest-error">No providers currently configured for ${escapeHtml(kind === 'pos' ? 'inflections' : kind)}.</div>`));
     return;
   }
 
+  if (kind === 'pos') {
+    panelEl.appendChild(enrichEl(`<div class="suggest-head"><span>${providers.length} provider(s) configured</span><span>from the inflections lookup</span></div>`));
+    const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
+    providers.forEach((p) => panelEl.appendChild(buildEnrichProviderRow('pos', p, prefix, defaultQuery, renderPosCandidate(prefix), undefined, forceRefresh, undefined, 'inflections')));
+    return;
+  }
   if (kind === 'translations') {
     const defaultQuery = suggestControlQueryValue(panelEl.id, prefix);
     const settings = await fetchSettings();
@@ -2720,7 +2868,6 @@ async function showTriageNote() {
 
 function updateTriageInflectionFields(pos, values) {
   const shapedPos = INFLECTION_SHAPES[pos] ? pos : null;
-  document.getElementById('t_inflections_field').style.display = shapedPos ? 'block' : 'none';
   if (shapedPos) renderInflectionFields('t_inflections_fields', shapedPos, values);
   else document.getElementById('t_inflections_fields').innerHTML = '';
 }

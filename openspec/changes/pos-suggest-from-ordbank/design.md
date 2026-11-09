@@ -79,6 +79,26 @@ per-field operator action" — fills are still explicit, but no longer
 strictly per-field. The per-field fill and per-cell copy both remain; this
 is an addition, not a replacement.
 
+**Found while verifying task 4.1, and fixed as part of this change:** the
+analysis above describes the *fields* correctly, but
+`ui/index.html`'s `e_inflections_field`/`c_inflections_field`/
+`t_inflections_field` wrapped the fields **and** the "Look up paradigm"
+suggest control **and** its panel in one `display:none` block, toggled
+by `updateEditInflectionFields` et al. the same way as the fields
+themselves. On a note with no `pos`, that hid the toggle button too — there
+was no way to even open the inflections panel to reach the apply action
+this change adds, on exactly the note this change exists for. Confirmed
+live (task 4.1): with the fix absent, "hallo" with no `pos` showed no
+Inflections section at all between Translations and Context text. Fixed by
+moving the section's visibility off `pos` and onto `type` (the same
+`TYPE_VISIBLE_FIELDS`-shaped gate the `pos` *field* itself already uses) in
+`applyTypeFieldVisibility`, so the section — control included — is visible
+for any `type=word` note regardless of whether `pos` is set yet; only the
+fields inside still populate conditionally on `pos`. This also made this
+change's own new part-of-speech suggest control reachable, since it lives
+next to the (already type-gated, already-correct) `pos` field rather than
+inside the old pos-gated wrapper.
+
 ### D2 — Apply is non-destructive; explicit suggest overwrites
 
 ```
@@ -156,12 +176,34 @@ that is in hand.
 
 ## Risks / Open Questions
 
-- **Ordbank's coverage of the actual gap is unmeasured.** The ~1,266 target
-  words look like exactly what Ordbank is good at (function words,
-  numerals, interjections), but no query has been run against the real
-  table — there is no running Postgres in this environment to test with. It
-  could be materially lower for loanwords and compounds. Worth measuring
-  before assuming the gap closes.
+- **Measured**: a live smia + Postgres stack was brought up against the
+  real imported Ordbank tables (`providers/nbno/20220201_norsk_ordbank_nob_
+  2005.tar.gz`, already present and already populated in the persisted
+  volume) and queried through the real `/inflections` endpoint, not the DB
+  directly. Of `import/candidates.db`'s 1,213 `type=word` candidates with no
+  `pos` and a single-token lemma/text that isn't capitalized (a proper-noun
+  proxy), a random sample of 50 (seed 42) hit Ordbank **47/50 — 94%**. The
+  3 misses (`innlogget`, `kjønnsforskning`, `smittesom`) are exactly the
+  derivational-compound/participle shapes the proposal already calls out as
+  out of scope. The gap closes close to fully for this change's target
+  population.
+- **Found while measuring: the fallback-token list was incomplete.** Querying
+  `ordbank_paradigme` directly (not just the 50-word sample) surfaced every
+  `boy_gruppe` not covered by `_SLOT_MAPS`, and one of them is both common
+  and canonical: `substantiv, ubøy` (invariable nouns — loanwords like
+  undeclinable `chips`-style nouns) falls through `_pos_for()` to the raw
+  token `subst`, which D3's enumerated list (`prep · konj · sbu · pron ·
+  det · interj · symb · forkorting`) did not anticipate. Unlike that list,
+  `subst` is not a class with no canonical equivalent — it abbreviates
+  `substantiv` itself, just for a paradigm `_SLOT_MAPS` doesn't shape-map
+  (hence an empty `paradigm`, correctly nothing to fill). Added to the
+  mapping: `subst → substantiv`. The same query also turned up rarer raw
+  tokens `_SLOT_MAPS`/D3 never mentioned (`inf-merke`, `pref`, the
+  single-row data artifacts `CLB` and bare `i`) and confirmed `forkorting`'s
+  actual emitted token is `fork`, not the boy_gruppe name itself — none of
+  these are canonical, and the implementation's default (unmapped → no
+  apply offered) handles all of them correctly without needing to name each
+  one.
 - **Ordbank's over-expansion is a known hazard.** `tun/docs/07-decisions.md`
   D137 records `ordbank_fullform`'s lemma grouping over-expanding for
   `fort`, which shares a `lemma_id` with the irregular verb `fore`/`forte`.

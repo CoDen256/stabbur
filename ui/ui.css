@@ -414,7 +414,8 @@ pre.json {
 
 .paradigm-candidate { background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 11px; margin-bottom: 7px; }
 .paradigm-candidate:last-child { margin-bottom: 0; }
-.paradigm-candidate-head { font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; }
+.paradigm-candidate-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; }
+.paradigm-candidate-head .apply-paradigm-btn { flex: none; }
 .paradigm-candidate-head strong { font-family: ui-monospace, monospace; color: var(--text); }
 /* Label-above-value, like .inflection-field — keeps every cell the same
    shape regardless of its row's column count, so a 3-wide and a 2-wide
