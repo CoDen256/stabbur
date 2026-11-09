@@ -93,7 +93,35 @@ def _pos_signal_values(fields: dict) -> tuple[tuple[str, str | None], ...]:
     )
 
 
-def _resolve_pos_and_lemma(fields: dict, sources: dict, conflicts: dict) -> None:
+# Task 2b.1: the raw freq6k source categories with no canonical equivalent.
+_UNMAPPABLE_SOURCE_CATEGORIES = normalize.UNMAPPABLE_SOURCE_CATEGORIES
+
+
+def _has_unmappable_source_category(rows: list[dict]) -> bool:
+    return any(row.get("notation", {}).get("source_pos_raw") in _UNMAPPABLE_SOURCE_CATEGORIES for row in rows)
+
+
+def _route_expression_if_no_canonical_pos(fields: dict, rows: list[dict]) -> None:
+    """Task 2b (design D6): a `word` candidate that no signal can resolve a
+    part of speech for, and whose shape is one of the no-deck categories —
+    an unmapped source category, a multiword headword, a phrase/greeting
+    ending in `!`/`?`, or a numeral — is retyped to `expression` instead of
+    being left as an undeckable `word`. Must run before `_resolve_pos_and_
+    lemma`'s note_type check (task 2b.4) so a retyped candidate is not also
+    given a part of speech."""
+    if any(value is not None for _, value in _pos_signal_values(fields)):
+        return
+    text = fields.get("text", "")
+    if (
+        _has_unmappable_source_category(rows)
+        or normalize.is_multiword(text)
+        or normalize.is_phrase_punctuation(text)
+        or normalize.is_numeral(text)
+    ):
+        fields["note_type"] = "expression"
+
+
+def _resolve_pos_and_lemma(fields: dict, sources: dict, conflicts: dict, rows: list[dict]) -> None:
     """Tasks 2.1-2.7, 3.1-3.2, 4.1-4.3: only `word` notes get a part of
     speech or a lemma (task 2.6/4.3) — `expression`/`listening` deck by
     type, not by part of speech, and have no single lemma to derive.
@@ -108,6 +136,9 @@ def _resolve_pos_and_lemma(fields: dict, sources: dict, conflicts: dict) -> None
     input) are superseded here, not kept alongside: once the four signals
     are compared against each other, that raw label disagreement is
     exactly signal 3 vs. the others, already covered below."""
+    if fields.get("note_type") == "word":
+        _route_expression_if_no_canonical_pos(fields, rows)
+
     if fields.get("note_type") != "word":
         fields.pop("pos", None)
         sources.pop("pos", None)
@@ -202,7 +233,7 @@ def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
         if audio_losers:
             conflicts["audio_ref"] = audio_losers
 
-    _resolve_pos_and_lemma(fields, sources, conflicts)
+    _resolve_pos_and_lemma(fields, sources, conflicts, ordered_rows)
 
     frequency_index = None
     core6k_rank = None
@@ -260,7 +291,7 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
         """
         SELECT n.id AS normalized_id, n.raw_note_id, n.source, n.note_type, n.text, n.pos,
                n.translations_json, n.context_text, n.transcription, n.inflections_json,
-               n.audio_ref, n.order_signal_json, s.signature_key
+               n.audio_ref, n.order_signal_json, n.notation_json, s.signature_key
         FROM normalized n
         JOIN signature s ON s.normalized_id = n.id
         """
@@ -292,6 +323,7 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
                 "inflections": json.loads(row["inflections_json"]),
                 "audio_ref": row["audio_ref"],
                 "order_signal": json.loads(row["order_signal_json"]),
+                "notation": json.loads(row["notation_json"]),
                 "tags": raw_note_tags.get(row["raw_note_id"], []),
             }
         )

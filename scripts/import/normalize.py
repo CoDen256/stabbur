@@ -138,6 +138,51 @@ def pos_from_translation_prefix(translations: list[dict]) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Type routing for entries with no canonical part of speech (task 2b,
+# design D6). There is no deck for a pronoun, determiner, numeral or
+# interjection, so a `word` candidate shaped like one of these is retyped
+# to `expression` (which decks by type via C26, needing no part of speech)
+# rather than left undeckable. Scope boundary: `bulk-import-anki-csv` task
+# 3.8 owns type routing generally; this module only owns the
+# no-canonical-part-of-speech rule (task 2b.5).
+# ---------------------------------------------------------------------------
+
+# Task 2b.1: the freq6k source categories D3 already maps to no canonical
+# part of speech. Only freq6k supplies these textual labels (NTNU's "source
+# word class" is really its article marker, already canonical) — see
+# `_normalize_freq6k`, which stashes the raw label here when unmapped.
+UNMAPPABLE_SOURCE_CATEGORIES = frozenset({"determiner", "set phrase", "interjection", "pronoun"})
+
+_PHRASE_PUNCTUATION_RE = re.compile(r"[!?]$")
+
+# Task 2b.3: numerals have no deck either. Starts at "seks", not
+# "en"/"to"/"tre"/"fire"/"fem" — those collide with other meanings (en/et/ei
+# as articles, and "tre" the noun/verb homograph flagged in design.md's
+# risk section), so routing them by spelling alone would be guessing, not
+# inferring.
+NUMERAL_WORDS = frozenset(
+    {
+        "seks", "sju", "syv", "åtte", "ni", "ti", "elleve", "tolv", "tretten",
+        "fjorten", "femten", "seksten", "sytten", "atten", "nitten", "tjue",
+        "tretti", "førti", "femti", "seksti", "sytti", "åtti", "nitti",
+        "hundre", "tusen",
+    }
+)
+
+
+def is_multiword(text: str | None) -> bool:
+    return bool(text) and len(text.split()) > 1
+
+
+def is_phrase_punctuation(text: str | None) -> bool:
+    return bool(text) and bool(_PHRASE_PUNCTUATION_RE.search(text.strip()))
+
+
+def is_numeral(text: str | None) -> bool:
+    return bool(text) and text.strip().lower() in NUMERAL_WORDS
+
+
 # Design D5: identical to the note editor's lemma guess (`deriveLemmaGuess`
 # in ui/ui.js — the function actually wired to the "From text" action
 # today; the `lemma-first-suggestions` change that introduced the simpler
@@ -433,12 +478,22 @@ def _normalize_core6k(fields: dict) -> dict:
 def _normalize_freq6k(fields: dict) -> dict:
     text = fields.get("Norwegian word", "").strip()
     translation = fields.get("English translation", "").strip()
-    pos = map_source_pos(fields.get("Word class", "").strip() or None)
+    word_class_raw = fields.get("Word class", "").strip() or None
+    pos = map_source_pos(word_class_raw)
     forms = parse_freq6k_paradigm(fields.get("Dictionary entry", ""))
     try:
         frequency_index = int(fields.get("Frequency index", "").strip())
     except ValueError:
         frequency_index = None
+    notation = {}
+    if forms:
+        notation["paradigm_forms"] = forms
+    if pos is None and word_class_raw:
+        # Task 2b.1: the raw (unmapped) source category, kept only when
+        # mapping produced nothing — merge.py's expression-routing check
+        # reads this to tell "no category" apart from "a category with no
+        # canonical equivalent".
+        notation["source_pos_raw"] = word_class_raw.strip().lower()
     return {
         "note_type": "word",
         "text": text,
@@ -449,7 +504,7 @@ def _normalize_freq6k(fields: dict) -> dict:
         "inflections": {},
         "audio_ref": None,  # freq6k audio is machine-synthesised — never carried past ingest (D10, task 7.1)
         "order_signal": {"frequency_index": frequency_index} if frequency_index is not None else {},
-        "notation": {"paradigm_forms": forms} if forms else {},
+        "notation": notation,
     }
 
 

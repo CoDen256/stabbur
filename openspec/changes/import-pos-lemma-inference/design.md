@@ -34,15 +34,14 @@ conflicts       38   substantiv/verb 21 · adjektiv/substantiv 11
 
 **Real post-run measurement (task 6.4, re-run against the full bundle,
 stock/known-set judge unavailable in this checkout so these are over all
-7,273 `type=word` candidates, not just verdict=import — judge doesn't
-filter the `candidate` table, only tags it, so the count is the same
-either way):**
+`type=word` candidates, not just verdict=import — judge doesn't filter the
+`candidate` table, only tags it, so the count is the same either way):**
 
 ```
 substantiv    3,485   verb         1,159   adjektiv      694
 adverb          115   preposisjon     67   konjunksjon    13
-unresolved    1,740   (76.1% resolved)
-lemma         7,273   (100% of type=word candidates)
+unresolved    1,420   (sections 2+2b: 71.9% resolved, 1,420 left unset)
+lemma         6,953   (100% of type=word candidates)
 conflicts        34   substantiv/verb 28 · adjektiv/adverb 5
                       adjektiv/substantiv 7
 off-vocabulary    0
@@ -53,6 +52,21 @@ Close to the pre-implementation estimate but not identical — same
 follow (see normalize.py's module docstring). The `substantiv`/`verb`
 conflict count (28, not 21) is the only figure with a non-trivial delta;
 the other two conflict categories are within a few of the estimate.
+
+**Section 2b re-measurement (task 2b.6):** the figures above are after
+section 2b's expression-routing also ran, so `word_count`/`unresolved`
+reflect the final state, not the pre-2b snapshot. Before 2b, `word_count`
+was 7,273 and `unresolved` was 1,740 (the first block measured in task 6.3's
+spot-check pass); section 2b moved **320** candidates from `word` to
+`expression` — above the design's ~250-300 estimate, but the breakdown
+explains why: 175 by the multiword rule alone, 71 by the unmapped
+source-category rule (`determiner`/`set phrase`/`interjection`/`pronoun`),
+50 matching both the multiword and `!`/`?`-punctuation rules, 23 numerals,
+and 1 by punctuation alone — the phrase/greeting shape (`punct` rules,
+50+1=51) matches the design's measured 51 exactly. `substantiv`/`verb`/
+`adjektiv`/`adverb`/`preposisjon`/`konjunksjon` and the conflict counts are
+unaffected by section 2b, since it only retypes candidates no signal could
+already resolve a part of speech for.
 
 This reflects a bug the task 6.3 spot-check caught and fixed before
 landing (see task 2.1's code comment in `normalize.py`): the adjective

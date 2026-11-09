@@ -10,6 +10,7 @@ import-tool test modules.
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -395,14 +396,28 @@ def test_pos_lemma_corpus_distribution_matches_measured(merged_conn):
         if "pos" in json.loads(row["conflicts_json"]):
             conflict_count += 1
 
-    assert word_count == 7273
+    assert word_count == 6953  # 7,273 minus the 320 moved to `expression` by section 2b
     assert lemma_count == word_count  # every word note gets a lemma (task 4.1)
     assert not off_vocabulary
     assert 3400 <= pos_counts["substantiv"] <= 3550
     assert 1100 <= pos_counts["verb"] <= 1200
     assert 650 <= pos_counts["adjektiv"] <= 750
-    assert 1600 <= unresolved <= 1800
+    assert 1300 <= unresolved <= 1500
     assert 20 <= conflict_count <= 60  # design.md's ~38, signal disagreement is rare by construction
+
+
+def test_no_canonical_pos_candidates_route_to_expression(merged_conn):
+    """Task 2b: a `word` candidate that no signal resolves a part of speech
+    for, and whose shape matches one of the no-deck categories (unmapped
+    source category, multiword, `!`/`?` punctuation, numeral), is retyped
+    to `expression` instead of staying an undeckable `word`."""
+    import json
+
+    rows = merged_conn.execute("SELECT fields_json FROM candidate").fetchall()
+    note_types = Counter(json.loads(row["fields_json"]).get("note_type") for row in rows)
+    assert note_types["word"] == 6953
+    assert note_types["expression"] == 616  # design.md task 2b.6: 320 moved here from `word`
+    assert note_types["listening"] == 1440  # unaffected by section 2b
 
 
 def test_merge_is_idempotent_and_does_not_touch_decision(merged_conn):
