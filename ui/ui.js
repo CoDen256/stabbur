@@ -848,6 +848,7 @@ const SIMILAR_FIELD_LABELS = {
   inflections: 'inflections',
   context_text: 'context',
   translations: 'translations',
+  pos: 'part of speech',
 };
 
 async function loadSimilarNotes(prefix, noteId) {
@@ -874,6 +875,9 @@ async function loadSimilarNotes(prefix, noteId) {
 // value contributes neither a preview line nor a take button.
 function similarNoteFieldPreviewHtml(m) {
   const lines = [];
+  if (m.pos) {
+    lines.push(`<div class="similar-note-field"><b>Part of speech</b> ${escapeHtml(m.pos)}</div>`);
+  }
   if (m.translations && m.translations.length) {
     const joined = m.translations.map((t) => `${t.lang}: ${t.text}`).join(' · ');
     lines.push(`<div class="similar-note-field"><b>Translations</b> ${escapeHtml(joined)}</div>`);
@@ -897,11 +901,12 @@ function similarNoteRowHtml(m) {
     .join(' ');
 
   const takeButtons = [];
+  if (m.has_pos) takeButtons.push(['pos', 'Take PoS']);
   if (m.has_audio) takeButtons.push(['audio_blob', 'Take audio']);
   if (m.has_transcription) takeButtons.push(['transcription', 'Take IPA']);
   if (m.has_inflections) takeButtons.push(['inflections', 'Take inflections']);
   if (m.has_context) takeButtons.push(['context_text', 'Take context']);
-  takeButtons.push(['translations', 'Take translations']);
+  if (m.has_translations) takeButtons.push(['translations', 'Take translations']);
 
   const canAbsorb = m.status === 'draft';
   const takeButtonsHtml = takeButtons
@@ -997,10 +1002,33 @@ function onSimilarTakeClick(prefix, noteId, btn) {
   const state = similarNotesState[prefix];
   const field = btn.dataset.takeField;
   const matchId = btn.dataset.takeNote;
-  if (state.take[field] === matchId) delete state.take[field];
-  else {
+  if (state.take[field] === matchId) {
+    delete state.take[field];
+    // Undoing an inflections take also undoes the pos it auto-staged —
+    // but only the pairing this take created, never a pos the operator
+    // separately chose to take themselves.
+    if (field === 'inflections' && state._autoPosFor === matchId && state.take.pos === matchId) {
+      delete state.take.pos;
+      delete state._autoPosFor;
+    }
+  } else {
     state.take[field] = matchId;
     state.absorb.add(matchId);
+    // Inflection field shapes are keyed by pos (INFLECTION_SHAPES) — taking
+    // inflections while the note being edited has no pos of its own leaves
+    // nothing to render them into, so the take would silently look like it
+    // did nothing. Auto-pairs a "take pos" from the same match in that case
+    // only (never overrides a pos the operator already staged to take from
+    // elsewhere), so the fields actually show up once committed.
+    if (field === 'inflections' && !state.take.pos) {
+      const ids = posFieldIdsFor(prefix);
+      const currentPos = getPosValue(ids.select, ids.custom);
+      const match = state.matches.find((m) => m.id === matchId);
+      if (!currentPos && match && match.pos) {
+        state.take.pos = matchId;
+        state._autoPosFor = matchId;
+      }
+    }
   }
   syncSimilarNoteControls(prefix);
   updateSimilarMergeBar(prefix);
@@ -3156,7 +3184,15 @@ document.getElementById('triageSendBackBtn').addEventListener('click', async () 
 
 document.getElementById('triageSkipBtn').addEventListener('click', async () => {
   if (!currentTriageNote) return;
-  if (await shouldAutosaveOnTriageNavigate()) await saveTriageEdits();
+  if (await shouldAutosaveOnTriageNavigate()) {
+    const saved = await saveTriageEdits();
+    // Without this, the in-memory queue entry at this index stays the
+    // stale pre-edit object — the backend has the edit, but Go to previous
+    // (or just scrolling back through the queue later) reads straight off
+    // `triageQueue`, so the edit would look like it never happened, and a
+    // later re-save from that stale state would overwrite the real one.
+    if (saved) triageQueue[triageIndex] = saved;
+  }
   triageHistoryStack.push({ type: 'skip', index: triageIndex });
   advanceTriageIndex();
 });
@@ -3182,7 +3218,15 @@ async function goToPreviousTriageNote() {
   // this only decides whether the card being left is persisted first, which
   // is orthogonal to which history entry is being unwound.
   if (currentTriageNote && (await shouldAutosaveOnTriageNavigate())) {
-    await saveTriageEdits();
+    const saved = await saveTriageEdits();
+    // Same staleness fix as Skip's autosave: the note being left stays in
+    // `triageQueue` (we're only moving the pointer elsewhere, or — for a
+    // 'sendback' entry — relocating it below), so its in-memory copy has to
+    // reflect what was just saved, not the pre-edit object it still held.
+    if (saved) {
+      const idx = triageQueue.findIndex((n) => n.id === currentTriageNote.id);
+      if (idx !== -1) triageQueue[idx] = saved;
+    }
   }
 
   if (entry.type === 'sendback') {

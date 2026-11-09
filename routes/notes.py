@@ -12,6 +12,7 @@ from flask import jsonify, request
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+import settings_store
 import similarity
 from db.models import NOTE_ORIGINS, NOTE_STATUSES, NOTE_TYPES, GrammarRule, Note
 from db.session import session_scope
@@ -143,6 +144,35 @@ def _normalize_inflections(inflections: dict | None) -> dict:
     return out
 
 
+# A "take translations" wholesale-replacing the survivor's own list (the
+# way every other take field works, since those are single-value fields)
+# would silently drop any translation the survivor already had — a merge
+# is supposed to combine two drafts' knowledge, not pick a winner for a
+# list-shaped field. Merged per-language using the same append/separate
+# choice operator-settings already exposes for the suggest panel's own
+# "use a second suggestion for the same language" case (ui.js's
+# useTranslationCandidate) — same semantics, same setting, now also at
+# merge-commit time.
+def _merge_translation_lists(existing: list | None, incoming: list | None, merge_mode: str) -> list:
+    merged = [dict(e) for e in (existing or []) if isinstance(e, dict)]
+    for item in incoming or []:
+        if not isinstance(item, dict):
+            continue
+        lang, text = item.get("lang"), item.get("text")
+        if lang is None or text is None:
+            continue
+        match_idx = next(
+            (i for i, e in enumerate(merged) if (e.get("lang") or "").lower() == lang.lower()),
+            None,
+        )
+        if match_idx is not None and merge_mode == "append":
+            current_text = merged[match_idx].get("text") or ""
+            merged[match_idx]["text"] = f"{current_text} / {text}" if current_text else text
+        else:
+            merged.append({"lang": lang, "text": text})
+    return merged
+
+
 def _serialize_similar_match(note: Note, signals: dict) -> dict:
     """similar-notes-merge tasks.md 4.1: a match with its reasons, status,
     origin, and which fields it has to offer — never a bare blended score
@@ -169,6 +199,8 @@ def _serialize_similar_match(note: Note, signals: dict) -> dict:
         "has_transcription": note.transcription is not None,
         "has_inflections": bool(note.inflections),
         "has_context": note.context_text is not None,
+        "has_translations": bool(note.translations),
+        "has_pos": note.pos is not None,
         # triage-editor-ux-fixes D4: the actual values, not just presence —
         # reading fields already loaded on `note` to compute the booleans
         # above, not an extra query. The booleans stay too; existing UI
@@ -178,6 +210,7 @@ def _serialize_similar_match(note: Note, signals: dict) -> dict:
         "inflections": _normalize_inflections(note.inflections),
         "transcription": note.transcription,
         "audio_blob": note.audio_blob,
+        "pos": note.pos,
     }
 
 
@@ -597,6 +630,9 @@ def register_notes_routes(app):
                     # values — stripped here too, so a merge never reintroduces
                     # it onto the survivor.
                     value = _normalize_inflections(value)
+                elif field == "translations" and source is not survivor:
+                    merge_mode = settings_store.read_scalars(db).get("translation_merge_mode", "append")
+                    value = _merge_translation_lists(survivor.translations, value, merge_mode)
                 setattr(survivor, field, value)
 
             # Hard-deleted, never tombstoned — every absorbed note was just

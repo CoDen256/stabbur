@@ -296,6 +296,99 @@ def test_taking_inflections_strips_grammatical_marker_prefix(client):
     assert resp.get_json()["inflections"] == {"infinitiv": "ringe", "perfektum": "ringt", "presens": "ringer"}
 
 
+def test_taking_translations_merges_with_survivors_own_default_append_mode(client):
+    survivor = _create(client, text="hus", status="draft", translations=[{"lang": "en", "text": "house"}])
+    absorbed = _create(
+        client,
+        text="hus2",
+        status="draft",
+        translations=[{"lang": "en", "text": "home"}, {"lang": "de", "text": "Haus"}],
+    )
+
+    resp = client.post(
+        "/api/notes/merge",
+        json={
+            "survivor_id": survivor["id"],
+            "absorbed_ids": [absorbed["id"]],
+            "take": {"translations": absorbed["id"]},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    translations = resp.get_json()["translations"]
+    assert {"lang": "en", "text": "house / home"} in translations
+    assert {"lang": "de", "text": "Haus"} in translations
+    assert len(translations) == 2
+
+
+def test_taking_translations_separate_mode_adds_a_second_row_for_the_same_language(client, monkeypatch):
+    survivor = _create(client, text="hus", status="draft", translations=[{"lang": "en", "text": "house"}])
+    absorbed = _create(client, text="hus2", status="draft", translations=[{"lang": "en", "text": "home"}])
+
+    patch_resp = client.patch("/api/settings", json={"translation_merge_mode": "separate"}, headers=AUTH)
+    assert patch_resp.status_code == 200
+
+    resp = client.post(
+        "/api/notes/merge",
+        json={
+            "survivor_id": survivor["id"],
+            "absorbed_ids": [absorbed["id"]],
+            "take": {"translations": absorbed["id"]},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    translations = resp.get_json()["translations"]
+    assert {"lang": "en", "text": "house"} in translations
+    assert {"lang": "en", "text": "home"} in translations
+    assert len(translations) == 2
+
+
+def test_taking_translations_with_no_existing_translations_just_adds_them(client):
+    survivor = _create(client, text="hus", status="draft")
+    absorbed = _create(client, text="hus2", status="draft", translations=[{"lang": "en", "text": "house"}])
+
+    resp = client.post(
+        "/api/notes/merge",
+        json={
+            "survivor_id": survivor["id"],
+            "absorbed_ids": [absorbed["id"]],
+            "take": {"translations": absorbed["id"]},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["translations"] == [{"lang": "en", "text": "house"}]
+
+
+def test_taking_pos_copies_it_onto_the_survivor(client):
+    survivor = _create(client, text="hus", status="draft")
+    absorbed = _create(client, text="hus2", status="draft", pos="substantiv")
+
+    resp = client.post(
+        "/api/notes/merge",
+        json={
+            "survivor_id": survivor["id"],
+            "absorbed_ids": [absorbed["id"]],
+            "take": {"pos": absorbed["id"]},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["pos"] == "substantiv"
+
+
+def test_similar_match_exposes_pos_and_has_translations(client):
+    a = _create(client, text="å oppleve")
+    b = _create(client, text="en opplevelse", pos="substantiv", translations=[{"lang": "en", "text": "an experience"}])
+
+    matches = _similar(client, a["id"])
+    by_id = {m["id"]: m for m in matches}
+    assert by_id[b["id"]]["pos"] == "substantiv"
+    assert by_id[b["id"]]["has_pos"] is True
+    assert by_id[b["id"]]["has_translations"] is True
+
+
 # --------------------------------------------------------------- 6.8 ---
 
 def test_failed_merge_rolls_back_entirely(client):
