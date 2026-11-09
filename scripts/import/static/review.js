@@ -270,7 +270,7 @@
         event.preventDefault();
         decide("accept");
         break;
-      case "x":
+      case "d":
         event.preventDefault();
         decide("reject");
         break;
@@ -278,7 +278,7 @@
         event.preventDefault();
         replay();
         break;
-      case "v":
+      case "t":
         event.preventDefault();
         undo();
         break;

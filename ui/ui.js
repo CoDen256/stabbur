@@ -2693,12 +2693,12 @@ document.getElementById('t_upload_audio_btn').addEventListener('click', async ()
 // prefill button — so the key-press flash below lands somewhere the
 // operator is actually looking.
 const TRIAGE_KEY_BINDINGS = {
-  t: 'triageSendBackBtn',
+  e: 'triageSendBackBtn',
   r: 'triageAcceptBtn',
   l: 'triagePrefillBtnBottom',
-  e: 'triageSkipBtn',
-  x: 'triageDeleteBtn',
-  v: 'triagePreviousBtn',
+  s: 'triageSkipBtn',
+  d: 'triageDeleteBtn',
+  t: 'triagePreviousBtn',
 };
 document.addEventListener('keydown', (e) => {
   if (parseHash().route !== 'triage' || !currentTriageNote) return;
