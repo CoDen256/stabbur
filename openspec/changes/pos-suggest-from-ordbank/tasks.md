@@ -5,7 +5,7 @@
 - [x] 1.3 Set `pos` **only when the note has none** (design D2). An existing part of speech is never changed by this action.
 - [x] 1.4 Fill only the forms whose key has a matching field for the resulting part of speech; ignore the rest (the existing non-matching-key rule still holds for them).
 - [x] 1.5 A candidate whose provider reported no `pos`, on a note with none, applies nothing — do not invent a part of speech, and do not fill into hidden fields.
-- [x] 1.6 Works on both the new-note form and the existing-note editor (`c_`/`e_` prefixes), per `note-editor`'s existing "panels work on both" requirement. (Implemented generically by prefix, so it also works unasked-for on triage's `t_` form, which shares the same `buildInflectionsProviderBlock` — harmless, not separately verified.)
+- [x] 1.6 Works on both the new-note form and the existing-note editor (`c_`/`e_` prefixes), per `note-editor`'s existing "panels work on both" requirement. (Implemented generically by prefix, so it also works on triage's `t_` form, which shares the same `buildInflectionsProviderBlock` — since confirmed by name, see 2.7.)
 
 ## 2. Part-of-speech suggest control
 
@@ -15,6 +15,7 @@
 - [x] 2.4 Where the note's existing part of speech differs from the reported one, show both before the operator chooses.
 - [x] 2.5 Fires only on opening the control or pressing retry — never on typing (`note-editor`'s existing rule).
 - [x] 2.6 Changing the part of speech via this control re-renders the inflection fields for the new shape, preserving any values whose keys exist in both shapes.
+- [x] 2.7 Triage's `t_` form (origin-scoped-triage-belt): the pos suggest control is also present beside `t_pos_select` (same markup), and its "Use" feeds the same provenance-badge convention every other triage field has (`t_pos_src`). The automatic prefill walk (`runTriagePrefill`) also runs a non-destructive pos lookup first — a gap-fill, not an operator "Use" — now ordered before `prefillTriageInflections` so a pos it just set is already in place for that pass to find a shape to fill into. Verified live: a fresh no-pos triage card auto-filled `pos=substantiv` with a `dictcc_api` badge, and the manual control's own candidate list opened correctly afterward.
 
 ## 3. Word-class mapping
 

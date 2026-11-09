@@ -363,7 +363,7 @@
                     </select>
                   </div>
                   <div class="field" id="t_pos_field">
-                    <label for="t_pos_select">Part of speech</label>
+                    <div class="field-label-row"><label for="t_pos_select">Part of speech</label><span class="spacer"></span><span class="src" id="t_pos_src" style="display:none"></span></div>
                     <select id="t_pos_select">
                       <option value="">— none —</option>
                       <option value="substantiv">substantiv</option>
@@ -375,6 +375,13 @@
                       <option value="__custom__">Custom…</option>
                     </select>
                     <input id="t_pos_custom" type="text" placeholder="custom part of speech" style="display:none; margin-top:6px;">
+                    <div class="suggest-control" style="margin-top:8px;">
+                      <button type="button" class="suggest-toggle" data-suggest-toggle="t_pos_suggest">✨ Suggest part of speech<span class="count" id="t_pos_suggest_count" style="display:none"></span></button>
+                      <div class="suggest-control-divider"></div>
+                      <input type="text" class="suggest-query" id="t_pos_suggest_query" spellcheck="false">
+                      <button type="button" class="suggest-rerun-btn" data-suggest-rerun="t_pos_suggest" title="Re-run every provider">⟳</button>
+                    </div>
+                    <div class="suggest-panel" id="t_pos_suggest" data-kind="pos" data-prefix="t"></div>
                   </div>
                 </div>
                 <input id="t_source_lang" type="text" style="display:none">

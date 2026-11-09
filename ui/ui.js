@@ -2749,7 +2749,7 @@ function updateTriageBelt() {
 
 function triageProvenanceSrcId(fieldKey) {
   return {
-    lemma: 't_lemma_src', transcription: 't_transcription_src', translations: 't_translations_src',
+    lemma: 't_lemma_src', pos: 't_pos_src', transcription: 't_transcription_src', translations: 't_translations_src',
     inflections: 't_inflections_src', context_text: 't_context_text_src', audio: 't_audio_src',
   }[fieldKey];
 }
@@ -2762,7 +2762,7 @@ function markTriageFieldProvenance(fieldKey, provider) {
 }
 
 function clearTriageProvenanceBadges() {
-  ['lemma', 'transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
+  ['lemma', 'pos', 'transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
     const el = document.getElementById(triageProvenanceSrcId(key));
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   });
@@ -2775,7 +2775,7 @@ function clearTriageProvenanceBadges() {
 document.getElementById('triageForm').addEventListener('input', (e) => {
   syncSuggestQueries('t');
   const fieldKey = {
-    t_lemma: 'lemma', t_transcription: 'transcription', t_context_text: 'context_text',
+    t_lemma: 'lemma', t_pos_select: 'pos', t_pos_custom: 'pos', t_transcription: 'transcription', t_context_text: 'context_text',
   }[e.target.id];
   if (fieldKey) {
     const el = document.getElementById(triageProvenanceSrcId(fieldKey));
@@ -3111,6 +3111,30 @@ function flashPrefilled(el, boxStyle) {
   el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
 }
 
+// Non-destructive, same as the editor's pos suggest control reading the
+// walk's own "first candidate" rather than letting the operator choose
+// (there is no operator present during an automatic prefill) — but unlike
+// the editor's explicit "Use", prefill only ever fills a gap (design D5),
+// so this never overwrites a pos the note, or an earlier prefill pass,
+// already set. Runs before prefillTriageInflections so a pos this walk
+// just set is already in place by the time that one looks for a shape to
+// fill — pos set, no run → no inflection fields exist yet to fill.
+async function prefillTriagePos() {
+  const currentPos = getPosValue('t_pos_select', 't_pos_custom');
+  if (currentPos) return false;
+  const query = defaultSuggestQuery('t', 'pos');
+  if (!query) return false;
+  const result = await walkProviders('inflections', 't', query);
+  const candidates = (result && result.candidates) || [];
+  const mapped = candidates.map((c) => canonicalPos(c.pos)).find(Boolean);
+  if (!mapped) return false;
+  setPosValue('t_pos_select', 't_pos_custom', mapped);
+  refreshInflectionFieldsForPrefix('t', mapped, carryForwardInflectionValues('t', mapped));
+  flashPrefilled(document.getElementById('t_pos_select'));
+  markTriageFieldProvenance('pos', result.provider);
+  return true;
+}
+
 async function prefillTriageTranscription(sourceLang) {
   const transcriptionEl = document.getElementById('t_transcription');
   if (transcriptionEl.value.trim()) return false;
@@ -3218,6 +3242,10 @@ async function runTriagePrefill() {
   const sourceLang = smiaLangCode(document.getElementById('t_source_lang').value);
   let filledCount = 0;
 
+  // pos first: inflections' own prefill needs a shape to fill into, and
+  // that shape doesn't exist until pos is set (same ordering as the
+  // editor's whole-paradigm apply).
+  if (await prefillTriagePos()) filledCount += 1;
   if (await prefillTriageTranscription(sourceLang)) filledCount += 1;
   if (await prefillTriageTranslations()) filledCount += 1;
   if (await prefillTriageInflections()) filledCount += 1;
