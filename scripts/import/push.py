@@ -198,12 +198,20 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
 
     pushed = 0
     skipped_already_pushed = 0
-    for row in accepted:
+    for i, row in enumerate(accepted, start=1):
+        fields = json.loads(row["fields_json"])
+        text = fields.get("text", "")
         if row["note_id"]:
             skipped_already_pushed += 1
+            print(f"push: [{i}/{count_in}] {text!r} already pushed (note {row['note_id']}) — skipped")
             continue
-        push_one(conn, row, run_id)
+        try:
+            note_id = push_one(conn, row, run_id)
+        except Exception as exc:  # noqa: BLE001 — re-raised unchanged; this only names the candidate first
+            print(f"push: [{i}/{count_in}] {text!r} (signature {row['signature_key']}) FAILED — {exc!r}")
+            raise
         pushed += 1
+        print(f"push: [{i}/{count_in}] {text!r} -> note {note_id}")
 
     print(f"push: {pushed} pushed, {skipped_already_pushed} already pushed (skipped, task 7.3)")
     return count_in, pushed, skipped_already_pushed

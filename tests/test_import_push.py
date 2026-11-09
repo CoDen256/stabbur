@@ -193,6 +193,46 @@ def test_run_skips_candidates_already_pushed(conn):
     mock_push_one.assert_not_called()
 
 
+def test_run_prints_progress_per_item(conn, capsys):
+    """Push against a live/remote server with no other visibility into
+    progress — each pushed item and each already-pushed skip gets its own
+    line, not just the final summary."""
+    run_id = import_store.start_run(conn, "merge")
+    _insert_candidate(conn, run_id, "a", {"text": "hund", "note_type": "word"}, {"text": "ntnu"})
+    _insert_candidate(conn, run_id, "b", {"text": "katt", "note_type": "word"}, {"text": "ntnu"})
+    conn.execute("UPDATE candidate SET note_id = 'already-pushed-id' WHERE signature_key = 'b'")
+    conn.execute("INSERT INTO decision (signature_key, decision, decided_at) VALUES ('a', 'accept', '2026-01-01')")
+    conn.execute("INSERT INTO decision (signature_key, decision, decided_at) VALUES ('b', 'accept', '2026-01-01')")
+    conn.commit()
+
+    with patch.object(import_push, "push_one", return_value="note-123"):
+        import_push.run(conn, run_id=99)
+
+    out = capsys.readouterr().out
+    assert "[1/2]" in out
+    assert "[2/2]" in out
+    assert "'hund'" in out or "hund" in out
+    assert "already pushed" in out
+
+
+def test_run_names_the_failing_candidate_before_reraising(conn, capsys):
+    """An HTTP failure mid-run must say which candidate it was on — the
+    only prior signal was a bare traceback with no indication of where in
+    a multi-thousand-item run it stopped."""
+    run_id = import_store.start_run(conn, "merge")
+    _insert_candidate(conn, run_id, "a", {"text": "hund", "note_type": "word"}, {"text": "ntnu"})
+    conn.execute("INSERT INTO decision (signature_key, decision, decided_at) VALUES ('a', 'accept', '2026-01-01')")
+    conn.commit()
+
+    with patch.object(import_push, "push_one", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError, match="boom"):
+            import_push.run(conn, run_id=99)
+
+    out = capsys.readouterr().out
+    assert "FAILED" in out
+    assert "hund" in out
+
+
 def test_push_one_stores_note_id_on_candidate(conn):
     run_id = import_store.start_run(conn, "ingest")
     raw_id = _insert_raw_note(conn, run_id, "ntnu", "n1")
