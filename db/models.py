@@ -179,6 +179,12 @@ SETTINGS_PREFILL_TIMINGS = ("on_open", "on_demand")
 # save the card being left before moving on (autosave), or never do (manual —
 # only the explicit Save action persists edits).
 SETTINGS_TRIAGE_NAVIGATE_SAVE_MODES = ("autosave", "manual")
+# triage-editor-ux-fixes examples-prefill follow-up: bounds on the two
+# examples-prefill scalars below — generous enough for any real use, tight
+# enough to reject a fat-fingered value outright rather than let the walk
+# hammer every configured provider or paste in an unreadable wall of text.
+SETTINGS_EXAMPLES_COUNT_RANGE = (1, 10)
+SETTINGS_EXAMPLES_MAX_PROVIDERS_RANGE = (1, 10)
 
 
 class Settings(Base):
@@ -208,6 +214,16 @@ class Settings(Base):
             f"triage_navigate_save IS NULL OR triage_navigate_save IN {SETTINGS_TRIAGE_NAVIGATE_SAVE_MODES!r}",
             name="ck_settings_triage_navigate_save",
         ),
+        CheckConstraint(
+            "examples_count IS NULL OR examples_count BETWEEN "
+            f"{SETTINGS_EXAMPLES_COUNT_RANGE[0]} AND {SETTINGS_EXAMPLES_COUNT_RANGE[1]}",
+            name="ck_settings_examples_count",
+        ),
+        CheckConstraint(
+            "examples_max_providers IS NULL OR examples_max_providers BETWEEN "
+            f"{SETTINGS_EXAMPLES_MAX_PROVIDERS_RANGE[0]} AND {SETTINGS_EXAMPLES_MAX_PROVIDERS_RANGE[1]}",
+            name="ck_settings_examples_max_providers",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
@@ -220,3 +236,10 @@ class Settings(Base):
     default_target_langs: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     prefill_timing: Mapped[str | None] = mapped_column(Text, nullable=True)
     triage_navigate_save: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # examples-prefill: how many example sentences the triage belt's
+    # automatic context-text fill aims for, and how many configured
+    # providers (in order, skipping any that answer empty) it's allowed to
+    # draw from to reach that count — was a hardcoded "first provider that
+    # answers, exactly 3 sentences" walk before this.
+    examples_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    examples_max_providers: Mapped[int | None] = mapped_column(Integer, nullable=True)

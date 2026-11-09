@@ -757,6 +757,24 @@
           </div>
         </div>
 
+        <div class="sgroup">
+          <h3>Examples prefill <span>triage's automatic context-text fill</span></h3>
+          <div class="sitem">
+            <div class="txt">
+              <b>How many example sentences</b>
+              <p>Total sentences prefilled into context, drawn across however many providers it takes to reach this count.</p>
+            </div>
+            <div class="ctl"><input class="mono" type="number" id="settingsExamplesCountInput" min="1" max="10" style="width:70px"></div>
+          </div>
+          <div class="sitem">
+            <div class="txt">
+              <b>From how many providers</b>
+              <p>A provider with no entry is skipped, not treated as the end of the walk — the next configured provider is tried until this many have been tried or the count above is reached.</p>
+            </div>
+            <div class="ctl"><input class="mono" type="number" id="settingsExamplesMaxProvidersInput" min="1" max="10" style="width:70px"></div>
+          </div>
+        </div>
+
         <p id="settingsSaveResult" class="inline-note"></p>
       </div>
     </section>

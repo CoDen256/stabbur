@@ -18,7 +18,7 @@ from routes.enrich import ENRICHABLE_KINDS
 
 ALLOWED_SETTINGS_KEYS = {
     "translation_merge_mode", "override_prefill", "default_target_langs", "providers", "prefill_timing",
-    "triage_navigate_save",
+    "triage_navigate_save", "examples_count", "examples_max_providers",
 }
 
 
@@ -58,6 +58,18 @@ def _validate_patch_body(body: dict) -> str | None:
 
     if "triage_navigate_save" in body and body["triage_navigate_save"] not in settings_store.TRIAGE_NAVIGATE_SAVE_MODES:
         return f"triage_navigate_save must be one of {settings_store.TRIAGE_NAVIGATE_SAVE_MODES}"
+
+    if "examples_count" in body:
+        lo, hi = settings_store.EXAMPLES_COUNT_RANGE
+        value = body["examples_count"]
+        if not isinstance(value, int) or isinstance(value, bool) or not (lo <= value <= hi):
+            return f"examples_count must be an integer between {lo} and {hi}"
+
+    if "examples_max_providers" in body:
+        lo, hi = settings_store.EXAMPLES_MAX_PROVIDERS_RANGE
+        value = body["examples_max_providers"]
+        if not isinstance(value, int) or isinstance(value, bool) or not (lo <= value <= hi):
+            return f"examples_max_providers must be an integer between {lo} and {hi}"
 
     if "default_target_langs" in body:
         langs = body["default_target_langs"]

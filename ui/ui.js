@@ -1401,6 +1401,8 @@ async function fetchSettings() {
     override_prefill: true,
     default_target_langs: SUGGEST_DEFAULT_LANGS,
     providers: {},
+    examples_count: 3,
+    examples_max_providers: 1,
   };
 }
 
@@ -2686,6 +2688,18 @@ async function patchSettingsScalar(updates) {
     patchSettingsScalar({ default_target_langs: langs });
   });
 
+  document.getElementById('settingsExamplesCountInput').addEventListener('change', (e) => {
+    const value = Number(e.target.value);
+    if (!Number.isInteger(value)) return;
+    patchSettingsScalar({ examples_count: value });
+  });
+
+  document.getElementById('settingsExamplesMaxProvidersInput').addEventListener('change', (e) => {
+    const value = Number(e.target.value);
+    if (!Number.isInteger(value)) return;
+    patchSettingsScalar({ examples_max_providers: value });
+  });
+
   const prefillSwitch = document.getElementById('settingsOverridePrefillSwitch');
   prefillSwitch.addEventListener('click', () => {
     const next = prefillSwitch.getAttribute('aria-pressed') !== 'true';
@@ -2726,6 +2740,8 @@ async function renderSettings() {
   document.querySelectorAll('#settingsTriageNavigateSaveSeg button').forEach((btn) => {
     btn.setAttribute('aria-pressed', btn.dataset.value === body.triage_navigate_save ? 'true' : 'false');
   });
+  document.getElementById('settingsExamplesCountInput').value = body.examples_count ?? 3;
+  document.getElementById('settingsExamplesMaxProvidersInput').value = body.examples_max_providers ?? 1;
 }
 
 // ------------------------------------------------------------ note-triage --
@@ -3293,24 +3309,47 @@ async function prefillTriageInflections() {
   return any;
 }
 
-// Always 3 examples, one per line — a fixed count regardless of the
-// editor's own per-panel examples-count control, since the triage card has
-// no such control of its own.
-const TRIAGE_PREFILL_EXAMPLES_COUNT = 3;
+// Unlike walkProviders' "first provider that answers wins" (right for a
+// single-value field — pos/inflections/tts/audio each have exactly one
+// correct answer, design D4), example sentences for context_text are
+// additive: a provider with no entry is skipped, not treated as the end of
+// the walk, and more than one provider's sentences can be pooled together
+// to reach the operator's configured count (operator-settings
+// `examples_count`/`examples_max_providers` — examples-prefill follow-up).
+async function walkExamplesProviders(prefix, queryValue, targetCount, maxProviders) {
+  const settings = await fetchSettings();
+  const info = (settings.providers && settings.providers.examples) || {};
+  const disabled = new Set(info.disabled || []);
+  const providers = (info.order || []).filter((p) => !disabled.has(p)).slice(0, maxProviders);
+  const texts = [];
+  const usedProviders = [];
+  for (const provider of providers) {
+    if (texts.length >= targetCount) break;
+    const fields = enrichRequestFields('examples', prefix, queryValue, undefined, targetCount - texts.length);
+    const { status, body } = await enrichLookup('examples', provider, fields, false);
+    if (status !== 200 || !body || !Array.isArray(body.candidates) || body.candidates.length === 0) continue;
+    const newTexts = body.candidates.map((c) => c.text).filter(Boolean);
+    if (!newTexts.length) continue;
+    texts.push(...newTexts);
+    usedProviders.push(provider);
+  }
+  if (!texts.length) return null;
+  return { texts: texts.slice(0, targetCount), providers: usedProviders };
+}
 
 async function prefillTriageExamples() {
   const ctxEl = document.getElementById('t_context_text');
   if (ctxEl.value.trim()) return false;
   const exQuery = defaultSuggestQuery('t', 'examples');
   if (!exQuery) return false;
-  const result = await walkProviders('examples', 't', exQuery, undefined, TRIAGE_PREFILL_EXAMPLES_COUNT);
-  const lines = result && Array.isArray(result.candidates)
-    ? result.candidates.slice(0, TRIAGE_PREFILL_EXAMPLES_COUNT).map((c) => c.text).filter(Boolean)
-    : [];
-  if (!lines.length) return false;
-  ctxEl.value = lines.join('\n');
+  const settings = await fetchSettings();
+  const targetCount = settings.examples_count || 3;
+  const maxProviders = settings.examples_max_providers || 1;
+  const result = await walkExamplesProviders('t', exQuery, targetCount, maxProviders);
+  if (!result || !result.texts.length) return false;
+  ctxEl.value = result.texts.join('\n');
   flashPrefilled(ctxEl);
-  markTriageFieldProvenance('context_text', result.provider);
+  markTriageFieldProvenance('context_text', result.providers.join(', '));
   return true;
 }
 

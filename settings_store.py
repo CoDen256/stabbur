@@ -20,12 +20,22 @@ PREFILL_TIMINGS = ("on_open", "on_demand")
 # behavior to Skip and Go to previous too; "manual" means none of the three
 # save — only the explicit triage Save action does.
 TRIAGE_NAVIGATE_SAVE_MODES = ("autosave", "manual")
+# triage-editor-ux-fixes examples-prefill follow-up: both bound 1-10 (D43's
+# own CheckConstraint is the enforced source of truth; mirrored here only
+# for the validation error message in routes/settings.py).
+EXAMPLES_COUNT_RANGE = (1, 10)
+EXAMPLES_MAX_PROVIDERS_RANGE = (1, 10)
 
 DEFAULT_TRANSLATION_MERGE_MODE = "append"
 DEFAULT_OVERRIDE_PREFILL = True
 DEFAULT_TARGET_LANGS = ("en", "de")
 DEFAULT_PREFILL_TIMING = "on_open"
 DEFAULT_TRIAGE_NAVIGATE_SAVE = "autosave"
+# Matches the hardcoded "3 sentences, first provider that answers" walk this
+# replaces — ships with no behavior change until the operator opts into a
+# larger count or provider budget.
+DEFAULT_EXAMPLES_COUNT = 3
+DEFAULT_EXAMPLES_MAX_PROVIDERS = 1
 
 
 def _row(db) -> Settings | None:
@@ -42,6 +52,8 @@ def read_scalars(db) -> dict:
         "default_target_langs": (row.default_target_langs if row else None) or list(DEFAULT_TARGET_LANGS),
         "prefill_timing": (row.prefill_timing if row else None) or DEFAULT_PREFILL_TIMING,
         "triage_navigate_save": (row.triage_navigate_save if row else None) or DEFAULT_TRIAGE_NAVIGATE_SAVE,
+        "examples_count": (row.examples_count if row else None) or DEFAULT_EXAMPLES_COUNT,
+        "examples_max_providers": (row.examples_max_providers if row else None) or DEFAULT_EXAMPLES_MAX_PROVIDERS,
     }
 
 
@@ -98,6 +110,10 @@ def write(db, updates: dict, kinds: tuple[str, ...]) -> None:
         row.prefill_timing = updates["prefill_timing"]
     if "triage_navigate_save" in updates:
         row.triage_navigate_save = updates["triage_navigate_save"]
+    if "examples_count" in updates:
+        row.examples_count = updates["examples_count"]
+    if "examples_max_providers" in updates:
+        row.examples_max_providers = updates["examples_max_providers"]
 
     if "providers" in updates:
         # Reassigned as a new dict (not mutated in place) so SQLAlchemy's

@@ -23,6 +23,8 @@ def test_reading_before_anything_configured_returns_full_defaults(client, monkey
     assert body["default_target_langs"] == ["en", "de"]
     assert body["prefill_timing"] == "on_open"
     assert body["triage_navigate_save"] == "autosave"
+    assert body["examples_count"] == 3
+    assert body["examples_max_providers"] == 1
     assert body["providers"]["ipa"]["order"] == ["wikipron", "nst"]
     assert body["providers"]["ipa"]["primary"] == "wikipron"
 
@@ -57,6 +59,38 @@ def test_triage_navigate_save_can_be_set_to_autosave(client, monkeypatch):
 def test_triage_navigate_save_rejects_unknown_value(client, monkeypatch):
     _mock_catalogue(monkeypatch, {})
     resp = client.patch("/api/settings", json={"triage_navigate_save": "sometimes"}, headers=AUTH)
+    assert resp.status_code == 400
+
+
+def test_examples_count_can_be_set_within_range(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"examples_count": 6}, headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.get_json()["examples_count"] == 6
+
+
+def test_examples_count_rejects_out_of_range_value(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"examples_count": 11}, headers=AUTH)
+    assert resp.status_code == 400
+
+
+def test_examples_count_rejects_non_integer(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"examples_count": "3"}, headers=AUTH)
+    assert resp.status_code == 400
+
+
+def test_examples_max_providers_can_be_set_within_range(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"examples_max_providers": 4}, headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.get_json()["examples_max_providers"] == 4
+
+
+def test_examples_max_providers_rejects_out_of_range_value(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"examples_max_providers": 0}, headers=AUTH)
     assert resp.status_code == 400
 
 

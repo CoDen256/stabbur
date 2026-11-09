@@ -210,8 +210,13 @@ td.num { text-align: right; font-family: ui-monospace, monospace; }
 .field-row:first-child { margin-top: 0; }
 .field-row.single { grid-template-columns: 1fr; }
 
-.detail-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
-@media (max-width: 920px) { .detail-grid { grid-template-columns: 1fr; } }
+/* minmax(0, 1fr), not a bare 1fr — a bare fr track's implicit min-width is
+   "auto" (its content's min-content size), so an unbroken-text descendant
+   (a long /-joined IPA string, nowrap+overflow-x:auto though it is) still
+   forces the whole column — and the page — wider. minmax(0, …) caps the
+   track at the grid's own width regardless of what's inside it. */
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (max-width: 920px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .audio-player {
   display: flex; align-items: center; gap: 10px;
