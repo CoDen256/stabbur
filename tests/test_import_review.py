@@ -146,104 +146,134 @@ def test_rerunning_judge_and_merge_preserves_decisions(conn):
 
 
 # ---------------------------------------------------------------------------
-# interleave_listening (operator decision, 2026-11-09): listening
+# listening interleave (operator decision, 2026-11-09): listening
 # candidates almost never carry a natural order signal and so cluster
-# entirely at the tail of order_sort_key's own ordering — evenly
-# redistributed through the rest of pending_queue's result instead.
+# entirely at the tail of order_sort_key's own ordering. A first
+# stride-based attempt (recomputing an insertion index fresh from array-
+# position 0 on every call) treadmilled — found by direct observation,
+# never surfacing a listening candidate across 20+ simulated decisions —
+# replaced with a baseline-anchored "overdue" check: two monotonically
+# increasing decided-counts (rest, listening) compared against a ratio
+# frozen the first time this ran, so progress can only ever move forward.
 # ---------------------------------------------------------------------------
 
 
-def _rows(spec):
-    return [{"signature_key": sig, "fields_json": json.dumps({"note_type": nt})} for sig, nt in spec]
+def _patch_baseline_path(monkeypatch, tmp_path):
+    path = tmp_path / "listening_interleave_baseline.json"
+    monkeypatch.setattr(import_review, "LISTENING_INTERLEAVE_BASELINE_PATH", path)
+    return path
 
 
-def test_interleave_listening_spreads_evenly_through_the_rest():
-    rows = _rows(
-        [("w1", "word"), ("w2", "word"), ("w3", "word"), ("w4", "word"),
-         ("l1", "listening"), ("l2", "listening")]
-    )
-    result = import_review.interleave_listening(rows)
-    note_types = [json.loads(r["fields_json"])["note_type"] for r in result]
-    assert note_types.count("listening") == 2
-    assert note_types.count("word") == 4
-    # Neither listening candidate is first (there's vocabulary ahead of it)
-    # nor are both dumped at the very end (the pre-existing bug).
-    listening_positions = [i for i, nt in enumerate(note_types) if nt == "listening"]
-    assert listening_positions[-1] != len(note_types) - 1 or listening_positions[0] != len(note_types) - 2
-
-
-def test_interleave_listening_never_reorders_within_each_group():
-    """The relative order of the non-listening candidates (whatever
-    tier-based order_sort_key gave them) and of the listening candidates
-    among themselves must be preserved — only their interleaving changes."""
-    rows = _rows(
-        [("w1", "word"), ("w2", "word"), ("l1", "listening"), ("w3", "word"),
-         ("l2", "listening"), ("w4", "word"), ("w5", "word"), ("w6", "word")]
-    )
-    result = import_review.interleave_listening(rows)
-    sigs = [r["signature_key"] for r in result]
-    words_in_result = [s for s in sigs if s.startswith("w")]
-    listening_in_result = [s for s in sigs if s.startswith("l")]
-    assert words_in_result == ["w1", "w2", "w3", "w4", "w5", "w6"]
-    assert listening_in_result == ["l1", "l2"]
-
-
-def test_interleave_listening_noop_when_no_listening_candidates():
-    rows = _rows([("w1", "word"), ("w2", "word")])
-    assert import_review.interleave_listening(rows) == rows
-
-
-def test_interleave_listening_noop_when_only_listening_candidates():
-    rows = _rows([("l1", "listening"), ("l2", "listening")])
-    assert import_review.interleave_listening(rows) == rows
-
-
-def test_interleave_listening_deterministic_across_repeated_calls():
-    """Not randomised — a stable stride-based interleave, so reopening the
-    review UI mid-session doesn't reshuffle what's already been shown."""
-    rows = _rows(
-        [(f"w{i}", "word") for i in range(10)] + [(f"l{i}", "listening") for i in range(3)]
-    )
-    first = [r["signature_key"] for r in import_review.interleave_listening(rows)]
-    second = [r["signature_key"] for r in import_review.interleave_listening(rows)]
-    assert first == second
-
-
-def test_pending_queue_interleaves_listening(conn):
-    """Integration: `pending_queue` itself applies the interleave, over
-    real `candidate` rows ordered by `order_sort_key` first."""
-    for i in range(6):
+def _seed_rest_and_listening(conn, n_rest, n_listening):
+    for i in range(n_rest):
         _insert_candidate(
             conn, f"w{i}", fields={"text": f"w{i}", "note_type": "word"},
             order_key={"frequency_index": i, "cefr": None, "chapter": None},
         )
-    for i in range(2):
+    for i in range(n_listening):
         _insert_candidate(
             conn, f"l{i}", fields={"text": f"l{i}", "note_type": "listening"},
             order_key={"frequency_index": None, "cefr": None, "chapter": None},
         )
+
+
+def test_baseline_is_created_once_and_reused(conn, monkeypatch, tmp_path):
+    path = _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 4, 2)
+    assert not path.exists()
+    baseline = import_review._load_or_create_listening_interleave_baseline(conn)
+    assert path.exists()
+    again = import_review._load_or_create_listening_interleave_baseline(conn)
+    assert again == baseline
+
+
+def test_baseline_captures_zero_debt_for_already_decided_candidates(conn, monkeypatch, tmp_path):
+    """The whole point of freezing a baseline at first-run time: candidates
+    decided *before* this feature existed must never count as an "owed"
+    backlog of listening cards to dump all at once."""
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 10, 10)
+    for i in range(8):
+        import_review.record_decision(conn, f"w{i}", "accept")
+
+    baseline = import_review._load_or_create_listening_interleave_baseline(conn)
+    assert baseline["decided_rest_at_baseline"] == 8
+    assert baseline["decided_listening_at_baseline"] == 0
+    # Immediately after the baseline is captured, nothing is overdue yet —
+    # the 8 pre-existing decisions are not treated as debt.
+    assert import_review.listening_candidate_is_due(conn) is False
+
+
+def test_listening_becomes_due_after_enough_rest_decisions(conn, monkeypatch, tmp_path):
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 10, 10)  # target_ratio = 1.0
+    import_review._load_or_create_listening_interleave_baseline(conn)  # freeze baseline at 0/0
+
+    assert import_review.listening_candidate_is_due(conn) is False
+    import_review.record_decision(conn, "w0", "accept")
+    assert import_review.listening_candidate_is_due(conn) is True
+
+
+def test_due_check_resolves_once_the_listening_candidate_is_decided(conn, monkeypatch, tmp_path):
+    """Confirms there's no treadmill: becoming "due" and then actually
+    deciding that candidate clears the debt, rather than perpetually
+    recomputing a position that's never reached."""
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 10, 10)
+    import_review._load_or_create_listening_interleave_baseline(conn)
+    import_review.record_decision(conn, "w0", "accept")
+    assert import_review.listening_candidate_is_due(conn) is True
+
+    import_review.record_decision(conn, "l0", "accept")
+    assert import_review.listening_candidate_is_due(conn) is False
+
+
+def test_pending_queue_surfaces_a_due_listening_candidate_first(conn, monkeypatch, tmp_path):
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 10, 10)
+    import_review._load_or_create_listening_interleave_baseline(conn)
+    import_review.record_decision(conn, "w0", "accept")
+
     pending = import_review.pending_queue(conn)
-    note_types = [json.loads(row["fields_json"])["note_type"] for row in pending]
-    assert note_types.count("listening") == 2
-    assert note_types.count("word") == 6
-    # Not both listening candidates stuck at the very end.
-    assert note_types[-1] != "listening" or note_types[-2] != "listening"
+    assert json.loads(pending[0]["fields_json"])["note_type"] == "listening"
 
 
-def test_pending_queue_interleave_only_spans_undecided_candidates(conn):
-    """A listening candidate can never be interleaved earlier than where
-    review currently stands — because `pending_queue` filters decided
-    candidates *before* interleaving, a decided word never "reappears"
-    to make room for a listening candidate shown earlier."""
-    for i in range(4):
-        _insert_candidate(
-            conn, f"w{i}", fields={"text": f"w{i}", "note_type": "word"},
-            order_key={"frequency_index": i, "cefr": None, "chapter": None},
-        )
-    _insert_candidate(
-        conn, "l0", fields={"text": "l0", "note_type": "listening"},
-        order_key={"frequency_index": None, "cefr": None, "chapter": None},
-    )
+def test_pending_queue_does_not_surface_listening_when_not_due(conn, monkeypatch, tmp_path):
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 10, 10)
+    import_review._load_or_create_listening_interleave_baseline(conn)
+
+    pending = import_review.pending_queue(conn)
+    assert json.loads(pending[0]["fields_json"])["note_type"] == "word"
+
+
+def test_listening_surfaces_repeatedly_not_just_once(conn, monkeypatch, tmp_path):
+    """Integration: simulate the operator deciding whatever `pending_queue`
+    puts in front of them, repeatedly — listening candidates must surface
+    more than once across the session, not just the first time."""
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 30, 10)
+    import_review._load_or_create_listening_interleave_baseline(conn)
+
+    seen_note_types = []
+    for _ in range(25):
+        pending = import_review.pending_queue(conn)
+        if not pending:
+            break
+        current = pending[0]
+        seen_note_types.append(json.loads(current["fields_json"])["note_type"])
+        import_review.record_decision(conn, current["signature_key"], "accept")
+
+    assert seen_note_types.count("listening") >= 2
+
+
+def test_pending_queue_never_surfaces_a_decided_candidate(conn, monkeypatch, tmp_path):
+    """A listening candidate can never be shown earlier than where review
+    currently stands — `pending_queue` filters decided candidates before
+    anything else, so a due listening candidate is inserted among what's
+    left, never ahead of (or reviving) something already decided."""
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_rest_and_listening(conn, 4, 1)
     import_review.record_decision(conn, "w0", "accept")
     import_review.record_decision(conn, "w1", "accept")
 

@@ -28,9 +28,15 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import sqlite3
+from pathlib import Path
 
 import merge as merge_stage
+
+LISTENING_INTERLEAVE_BASELINE_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "import" / "listening_interleave_baseline.json"
+)
 
 
 def queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -44,7 +50,30 @@ def decided_signature_keys(conn: sqlite3.Connection) -> set[str]:
     return {row["signature_key"] for row in conn.execute("SELECT signature_key FROM decision").fetchall()}
 
 
-def interleave_listening(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+def _note_type(row: sqlite3.Row) -> str | None:
+    return json.loads(row["fields_json"]).get("note_type")
+
+
+def _rest_and_listening_counts(conn: sqlite3.Connection) -> tuple[int, int, int, int]:
+    """(rest_total, listening_total, decided_rest, decided_listening) over
+    the whole queue (task 6.1's `verdict == 'import'` set) — `rest` is
+    every non-`listening` candidate."""
+    full = queue(conn)
+    decided = decided_signature_keys(conn)
+    rest_total = listening_total = decided_rest = decided_listening = 0
+    for row in full:
+        is_listening = _note_type(row) == "listening"
+        is_decided = row["signature_key"] in decided
+        if is_listening:
+            listening_total += 1
+            decided_listening += is_decided
+        else:
+            rest_total += 1
+            decided_rest += is_decided
+    return rest_total, listening_total, decided_rest, decided_listening
+
+
+def _load_or_create_listening_interleave_baseline(conn: sqlite3.Connection) -> dict:
     """Operator decision (2026-11-09): `listening` candidates almost never
     carry a natural ordering signal — `frequency_index`/`core6k_rank` only
     ever attach to word-sourced rows — so under plain `order_sort_key`
@@ -54,45 +83,80 @@ def interleave_listening(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
     of 1,434 `listening` candidates live in it — which is why 2,500
     reviews in, the operator had not seen a single one.
 
-    Evenly redistributes `listening` candidates through the rest of
-    `rows` instead — a stride-based interleave (`len(rest) / len
-    (listening)`), deterministic rather than randomised, so repeatedly
-    opening the review UI mid-session doesn't reshuffle what's already
-    been shown. Deliberately applied here, to `pending_queue`'s own
-    already-decided-filtered list, and not to the underlying
-    `order_key_json` persisted by `merge` or to `push`'s ordering (design
-    D6): this only changes what the operator is shown next, never the
-    permanent push order a card's `Cards[]` introduction order depends
-    on. Because `rows` here never includes anything already decided, a
-    `listening` candidate can only ever land among what's still ahead —
-    it can never be interleaved earlier than where review currently
-    stands."""
-    listening = [row for row in rows if json.loads(row["fields_json"]).get("note_type") == "listening"]
-    rest = [row for row in rows if json.loads(row["fields_json"]).get("note_type") != "listening"]
-    if not listening or not rest:
-        return rows
+    A snapshot of where review stood *the first time this feature ran*:
+    how many non-`listening` ("rest") and `listening` candidates were
+    already decided, and the ratio of what's left of each. Written once,
+    to `import/listening_interleave_baseline.json` (same convention as
+    `baseline_eligibility.json`), and never updated after — this is the
+    anchor an "overdue" check (`listening_candidate_is_due`) measures
+    progress *since*, so the fix only affects reviewing from here
+    forward, never retroactively treats the operator's existing 2,700+
+    decided candidates as a backlog of "owed" `listening` cards to dump
+    all at once."""
+    if LISTENING_INTERLEAVE_BASELINE_PATH.exists():
+        return json.loads(LISTENING_INTERLEAVE_BASELINE_PATH.read_text(encoding="utf-8"))
 
-    stride = len(rest) / len(listening)
-    result: list[sqlite3.Row] = []
-    listening_index = 0
-    next_threshold = stride
-    for position, row in enumerate(rest):
-        result.append(row)
-        if listening_index < len(listening) and (position + 1) >= next_threshold:
-            result.append(listening[listening_index])
-            listening_index += 1
-            next_threshold += stride
-    result.extend(listening[listening_index:])
-    return result
+    rest_total, listening_total, decided_rest, decided_listening = _rest_and_listening_counts(conn)
+    rest_remaining = rest_total - decided_rest
+    listening_remaining = listening_total - decided_listening
+    baseline = {
+        "decided_rest_at_baseline": decided_rest,
+        "decided_listening_at_baseline": decided_listening,
+        "target_ratio": listening_remaining / rest_remaining if rest_remaining else 0.0,
+    }
+    LISTENING_INTERLEAVE_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LISTENING_INTERLEAVE_BASELINE_PATH.write_text(json.dumps(baseline, indent=2), encoding="utf-8")
+    return baseline
+
+
+def listening_candidate_is_due(conn: sqlite3.Connection) -> bool:
+    """Whether the `rest` (non-`listening`) decisions made *since the
+    baseline* have outpaced the `listening` decisions made since the same
+    baseline, relative to `target_ratio` — i.e. whether a `listening`
+    candidate is now overdue and should be surfaced immediately.
+
+    Deliberately NOT a position-counting loop over the current undecided
+    array (the first attempt at this, found broken by direct observation:
+    recomputing a stride-based insertion index fresh from array-index 0
+    on every single call is a treadmill — each decision only ever strips
+    exactly one item from the front, so "the next listening candidate is
+    always ~3 items away" stays true forever, no matter how many
+    decisions happen, because the count never actually advances toward
+    it). This instead compares two *monotonically increasing* counters —
+    decided-rest-count and decided-listening-count, both backed by
+    `decision`, which never resets or rewinds — so "how overdue are we"
+    only ever moves in the right direction, and resolves to exactly 0 the
+    moment the operator actually decides the overdue `listening`
+    candidate (rather than merely being shown it)."""
+    baseline = _load_or_create_listening_interleave_baseline(conn)
+    _, _, decided_rest_now, decided_listening_now = _rest_and_listening_counts(conn)
+    rest_progress = decided_rest_now - baseline["decided_rest_at_baseline"]
+    listening_progress = decided_listening_now - baseline["decided_listening_at_baseline"]
+    target_listening_by_now = math.floor(rest_progress * baseline["target_ratio"])
+    return target_listening_by_now > listening_progress
 
 
 def pending_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """The queue minus whatever already has a decision — reopening review
-    resumes here (task 6.4) — with `listening` candidates evenly
-    interleaved through the remainder (see `interleave_listening`)."""
+    resumes here (task 6.4). When a `listening` candidate is overdue
+    (`listening_candidate_is_due`), the next undecided one is surfaced as
+    the very first entry — forcing it to be the actual next card shown,
+    not merely present somewhere further down an array the operator may
+    never reach before the next recompute (see that function's
+    docstring). Deliberately applied only here, never to the underlying
+    `order_key_json` persisted by `merge` or to `push`'s ordering (design
+    D6): this changes what the operator is shown next, never the
+    permanent push order a card's `Cards[]` introduction order depends
+    on."""
     decided = decided_signature_keys(conn)
     undecided = [row for row in queue(conn) if row["signature_key"] not in decided]
-    return interleave_listening(undecided)
+    listening = [row for row in undecided if _note_type(row) == "listening"]
+    rest = [row for row in undecided if _note_type(row) != "listening"]
+    if not listening or not rest:
+        return undecided
+    if listening_candidate_is_due(conn):
+        return [listening[0], *rest, *listening[1:]]
+    return [*rest, *listening]
 
 
 def progress(conn: sqlite3.Connection) -> tuple[int, int]:
