@@ -286,6 +286,20 @@ const INFLECTION_FIELD_PREFIX_STOPWORDS = {
 // kept; the +e definite variant is derivable and not worth a second field.
 const INFLECTION_FIELD_SLASH_VARIANT_FIELDS = new Set(['superlativ']);
 
+// The article cut off sg_indef/sg_def by normalizeInflectionValue isn't
+// noise to discard — it's the note's own `article` field, just not yet
+// filed there. Looked up from the raw (pre-strip) paradigm value, so this
+// has to run before/alongside normalizeInflectionValue, not after.
+function deriveArticleToken(paradigmValues) {
+  if (!paradigmValues) return null;
+  const stopwords = INFLECTION_FIELD_PREFIX_STOPWORDS.sg_indef;
+  const source = paradigmValues.sg_indef || paradigmValues.sg_def;
+  if (typeof source !== 'string') return null;
+  const tokens = source.trim().split(/\s+/);
+  if (tokens.length > 1 && stopwords.includes(tokens[0].toLowerCase())) return tokens[0].toLowerCase();
+  return null;
+}
+
 function normalizeInflectionValue(field, value) {
   if (typeof value !== 'string') return value;
   let out = value;
@@ -900,8 +914,11 @@ function similarNoteRowHtml(m) {
     .map((r) => `<span class="pill${r.signal === 'spelling' ? ' pill-spelling' : ''}">${escapeHtml(r.label)}</span>`)
     .join(' ');
 
+  // No standalone "Take PoS" button — a pos is only ever useful here as the
+  // shape a taken inflections paradigm renders into, and onSimilarTakeClick
+  // already stages it automatically alongside "Take inflections" when
+  // needed (never a separate operator decision).
   const takeButtons = [];
-  if (m.has_pos) takeButtons.push(['pos', 'Take PoS']);
   if (m.has_audio) takeButtons.push(['audio_blob', 'Take audio']);
   if (m.has_transcription) takeButtons.push(['transcription', 'Take IPA']);
   if (m.has_inflections) takeButtons.push(['inflections', 'Take inflections']);
@@ -2187,10 +2204,15 @@ function renderExamplesCandidate(prefix) {
     `);
     r.querySelector('.use-btn').addEventListener('click', (e) => {
       const field = document.getElementById(`${prefix}_context_text`);
-      field.value = c.text || '';
+      const existing = field.value.trim();
+      // Example sentences are additive, not a single answer (unlike
+      // transcription/tts/pos) — more than one candidate is often worth
+      // keeping together as separate lines, so Use appends rather than
+      // replacing whatever's already there.
+      field.value = existing ? `${existing}\n${c.text || ''}` : (c.text || '');
       field.dispatchEvent(new Event('input', { bubbles: true }));
       markSuggestUsed(e.target);
-      enrichToast(`Context set from ${providerName}`);
+      enrichToast(`Context ${existing ? 'appended' : 'set'} from ${providerName}`);
     });
     return r;
   };
@@ -2353,6 +2375,15 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
             field.dispatchEvent(new Event('input', { bubbles: true }));
             filled += 1;
           });
+          const articleField = document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="article"]`);
+          if (articleField && !articleField.value.trim()) {
+            const derivedArticle = deriveArticleToken(paradigm);
+            if (derivedArticle) {
+              articleField.value = derivedArticle;
+              articleField.dispatchEvent(new Event('input', { bubbles: true }));
+              filled += 1;
+            }
+          }
         }
         if (!currentPos && mappedPos) enrichToast(`Part of speech set to ${resultingPos}, ${filled} form(s) filled from ${provider}`);
         else if (filled) enrichToast(`${filled} form(s) filled from ${provider}`);
@@ -2365,7 +2396,19 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
         if (!field) return;
         field.value = btn.dataset.fillValue;
         field.dispatchEvent(new Event('input', { bubbles: true }));
-        enrichToast(`${btn.dataset.fillField.replace(/_/g, ' ')} filled from ${provider}`);
+        let note = `${btn.dataset.fillField.replace(/_/g, ' ')} filled from ${provider}`;
+        if (btn.dataset.fillField === 'sg_indef' || btn.dataset.fillField === 'sg_def') {
+          const articleField = fieldFor('article');
+          if (articleField && !articleField.value.trim()) {
+            const derivedArticle = deriveArticleToken(paradigm);
+            if (derivedArticle) {
+              articleField.value = derivedArticle;
+              articleField.dispatchEvent(new Event('input', { bubbles: true }));
+              note += ', article filled too';
+            }
+          }
+        }
+        enrichToast(note);
       }));
       resultBox.appendChild(block);
     });
@@ -3027,6 +3070,11 @@ async function showTriageNote() {
 
   document.getElementById('t_text').value = note.text || '';
   document.getElementById('t_lemma').value = note.lemma || '';
+  // Reset per-note, not per-session: the "operator typed here, stop
+  // syncing" flag (wireLemmaTextSync) otherwise leaks across notes —
+  // dirtying lemma on one card silently disabled lemma-from-text sync (and
+  // the article/particle-stripping guess below) for every card after it.
+  delete document.getElementById('t_lemma').dataset.dirty;
   document.getElementById('t_type').value = note.type;
   setPosValue('t_pos_select', 't_pos_custom', note.pos);
   document.getElementById('t_source_lang').value = note.source_lang || '';
@@ -3047,9 +3095,16 @@ async function showTriageNote() {
   // land first regardless of the on_open/on_demand setting, not wait behind
   // a provider round-trip the way every other field's prefill does.
   const lemmaEl = document.getElementById('t_lemma');
-  if (!lemmaEl.value.trim()) {
-    const guess = deriveLemmaGuess(document.getElementById('t_text').value);
-    if (guess) {
+  const rawText = document.getElementById('t_text').value;
+  // Re-derive not just when lemma is empty, but also when it's still the
+  // raw, un-stripped text verbatim (a note saved before this stripping
+  // existed, or one whose lemma was never actually derived) — otherwise a
+  // stale "å legge til" sits in lemma forever, and every lookup that reads
+  // lemma directly (inflections' own query, D1) inherits its un-stripped
+  // article/particle right along with it.
+  if (!lemmaEl.value.trim() || lemmaEl.value.trim() === rawText.trim()) {
+    const guess = deriveLemmaGuess(rawText);
+    if (guess && guess !== lemmaEl.value.trim()) {
       lemmaEl.value = guess;
       flashPrefilled(lemmaEl);
       markTriageFieldProvenance('lemma', 'derived from text');
@@ -3427,6 +3482,11 @@ async function prefillTriageInflections() {
       if (input) { input.value = normalizeInflectionValue(field, result.candidate.paradigm[field]); flashPrefilled(input); any = true; }
     }
   });
+  if (!current.article) {
+    const articleInput = document.querySelector('#t_inflections_fields [data-inflection-field="article"]');
+    const derivedArticle = deriveArticleToken(result.candidate.paradigm);
+    if (articleInput && derivedArticle) { articleInput.value = derivedArticle; flashPrefilled(articleInput); any = true; }
+  }
   if (any) markTriageFieldProvenance('inflections', result.provider);
   return any;
 }
@@ -3498,6 +3558,21 @@ async function prefillTriageAudio(sourceLang) {
   return true;
 }
 
+// Each step is its own provider round-trip (or several) — a single
+// transient failure (one provider timing out, a flaky network blip)
+// shouldn't take the rest of the walk down with it. Without this, prefill
+// looked like it "stopped working from time to time": one step throwing
+// aborted every step after it in the same await chain, with nothing
+// visible to say why.
+async function runTriagePrefillStep(stepFn, ...args) {
+  try {
+    return await stepFn(...args);
+  } catch (err) {
+    console.error('Triage prefill step failed:', stepFn.name, err);
+    return false;
+  }
+}
+
 async function runTriagePrefill() {
   if (!currentTriageNote) return;
   const sourceLang = smiaLangCode(document.getElementById('t_source_lang').value);
@@ -3506,12 +3581,12 @@ async function runTriagePrefill() {
   // pos first: inflections' own prefill needs a shape to fill into, and
   // that shape doesn't exist until pos is set (same ordering as the
   // editor's whole-paradigm apply).
-  if (await prefillTriagePos()) filledCount += 1;
-  if (await prefillTriageTranscription(sourceLang)) filledCount += 1;
-  if (await prefillTriageTranslations()) filledCount += 1;
-  if (await prefillTriageInflections()) filledCount += 1;
-  if (await prefillTriageExamples()) filledCount += 1;
-  if (await prefillTriageAudio(sourceLang)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriagePos)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriageTranscription, sourceLang)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriageTranslations)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriageInflections)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriageExamples)) filledCount += 1;
+  if (await runTriagePrefillStep(prefillTriageAudio, sourceLang)) filledCount += 1;
 
   syncSuggestQueries('t');
   if (filledCount > 0) enrichToast(`Prefilled ${filledCount} field${filledCount === 1 ? '' : 's'}`);
