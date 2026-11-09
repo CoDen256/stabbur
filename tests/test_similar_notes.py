@@ -98,6 +98,19 @@ def test_similar_match_inflections_strip_grammatical_marker_prefix(client):
     assert by_id[b["id"]]["inflections"]["article"] == "en"
 
 
+def test_similar_match_superlativ_keeps_only_first_slash_variant(client):
+    a = _create(client, text="å oppleve")
+    b = _create(
+        client,
+        text="en opplevelse",
+        inflections={"superlativ": "strengest/strengeste"},
+    )
+
+    matches = _similar(client, a["id"])
+    by_id = {m["id"]: m for m in matches}
+    assert by_id[b["id"]]["inflections"]["superlativ"] == "strengest"
+
+
 def test_similar_match_without_fields_returns_empty_values(client):
     a = _create(client, text="å oppleve")
     b = _create(client, text="en opplevelse")

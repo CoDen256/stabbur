@@ -597,6 +597,12 @@ input.prefill-flash, textarea.prefill-flash, select.prefill-flash {
 }
 .src::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); opacity: .7; }
 
+/* field-completeness: a per-field dot flagging "nothing here yet" (not an
+   error — draft notes are allowed to be incomplete) next to the label of
+   any applicable-but-empty triage field, plus the belt-wide count near
+   "Mark ready & next" (triageCompletionBadge). */
+.missing-marker { color: var(--err); font-size: 15px; line-height: 1; }
+
 kbd {
   font-family: ui-monospace, monospace; font-size: 10.5px; line-height: 1;
   padding: 3px 5px; border-radius: 3px;

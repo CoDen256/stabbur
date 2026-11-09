@@ -113,21 +113,27 @@ def _serialize_authoring(note: Note) -> dict:
 # triage-editor-ux-fixes follow-up: smia's paradigm forms read naturally
 # with their grammatical marker in front (å ringe, har ringt, en ring) —
 # redundant once the value is filed under its own already-labeled field.
-# Mirrors ui.js's INFLECTION_FIELD_PREFIX_STOPWORDS/stripInflectionPrefix —
-# kept in sync by hand, since the two run in different languages.
+# Mirrors ui.js's INFLECTION_FIELD_PREFIX_STOPWORDS/normalizeInflectionValue
+# — kept in sync by hand, since the two run in different languages.
 _INFLECTION_FIELD_PREFIX_STOPWORDS = {
     "infinitiv": ("å",),
     "perfektum": ("har", "er"),
     "sg_indef": ("en", "et", "ei"),
     "sg_def": ("en", "et", "ei"),
 }
+# A superlativ answer is often two "/"-joined forms (bare + its +e definite
+# variant, e.g. "strengest/strengeste") — one field holds one form, so only
+# the first is kept.
+_INFLECTION_FIELD_SLASH_VARIANT_FIELDS = {"superlativ"}
 
 
-def _strip_inflection_prefixes(inflections: dict | None) -> dict:
+def _normalize_inflections(inflections: dict | None) -> dict:
     if not inflections:
         return {}
     out = {}
     for key, value in inflections.items():
+        if key in _INFLECTION_FIELD_SLASH_VARIANT_FIELDS and isinstance(value, str) and "/" in value:
+            value = value.split("/")[0].strip()
         stopwords = _INFLECTION_FIELD_PREFIX_STOPWORDS.get(key)
         if stopwords and isinstance(value, str):
             tokens = value.strip().split()
@@ -169,7 +175,7 @@ def _serialize_similar_match(note: Note, signals: dict) -> dict:
         # logic still branches on them for which take-buttons to render.
         "translations": note.translations or [],
         "context_text": note.context_text,
-        "inflections": _strip_inflection_prefixes(note.inflections),
+        "inflections": _normalize_inflections(note.inflections),
         "transcription": note.transcription,
         "audio_blob": note.audio_blob,
     }
@@ -590,7 +596,7 @@ def register_notes_routes(app):
                     # still carry the grammatical-marker prefix on its stored
                     # values — stripped here too, so a merge never reintroduces
                     # it onto the survivor.
-                    value = _strip_inflection_prefixes(value)
+                    value = _normalize_inflections(value)
                 setattr(survivor, field, value)
 
             # Hard-deleted, never tombstoned — every absorbed note was just

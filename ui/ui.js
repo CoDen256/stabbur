@@ -280,16 +280,28 @@ const INFLECTION_FIELD_PREFIX_STOPWORDS = {
   sg_def: ['en', 'et', 'ei'],
 };
 
-function stripInflectionPrefix(field, value) {
+// A provider's superlativ answer is often two forms joined by "/" — the
+// bare superlative and its definite form (usually just +e, e.g.
+// "strengest/strengeste") — one field holds one form, so only the first is
+// kept; the +e definite variant is derivable and not worth a second field.
+const INFLECTION_FIELD_SLASH_VARIANT_FIELDS = new Set(['superlativ']);
+
+function normalizeInflectionValue(field, value) {
+  if (typeof value !== 'string') return value;
+  let out = value;
+  if (INFLECTION_FIELD_SLASH_VARIANT_FIELDS.has(field) && out.includes('/')) {
+    out = out.split('/')[0].trim();
+  }
   const stopwords = INFLECTION_FIELD_PREFIX_STOPWORDS[field];
-  if (!stopwords || typeof value !== 'string') return value;
-  const tokens = value.trim().split(/\s+/);
-  if (tokens.length > 1 && stopwords.includes(tokens[0].toLowerCase())) return tokens.slice(1).join(' ');
-  return value;
+  if (stopwords) {
+    const tokens = out.trim().split(/\s+/);
+    if (tokens.length > 1 && stopwords.includes(tokens[0].toLowerCase())) out = tokens.slice(1).join(' ');
+  }
+  return out;
 }
 
 function inflectionFieldHtml(field, value) {
-  const stripped = stripInflectionPrefix(field, value);
+  const stripped = normalizeInflectionValue(field, value);
   return `
     <div class="inflection-field">
       <label>${escapeHtml(field.replace(/_/g, ' '))}</label>
@@ -318,7 +330,7 @@ function renderInflectionFields(containerId, pos, values) {
 function readInflectionFields(containerId) {
   const out = {};
   document.querySelectorAll(`#${containerId} [data-inflection-field]`).forEach((input) => {
-    out[input.dataset.inflectionField] = stripInflectionPrefix(input.dataset.inflectionField, input.value);
+    out[input.dataset.inflectionField] = normalizeInflectionValue(input.dataset.inflectionField, input.value);
   });
   return out;
 }
@@ -870,7 +882,7 @@ function similarNoteFieldPreviewHtml(m) {
     lines.push(`<div class="similar-note-field"><b>Context</b> ${escapeHtml(m.context_text)}</div>`);
   }
   if (m.inflections && Object.keys(m.inflections).length) {
-    const joined = Object.entries(m.inflections).map(([k, v]) => `${k}: ${stripInflectionPrefix(k, v)}`).join(' · ');
+    const joined = Object.entries(m.inflections).map(([k, v]) => `${k}: ${normalizeInflectionValue(k, v)}`).join(' · ');
     lines.push(`<div class="similar-note-field"><b>Inflections</b> ${escapeHtml(joined)}</div>`);
   }
   if (m.transcription) {
@@ -2255,7 +2267,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
       // guess), in which case only copy is offered (design.md D3).
       const fieldFor = (key) => document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
       const paradigmRow = (key, rawValue) => {
-        const value = stripInflectionPrefix(key, rawValue);
+        const value = normalizeInflectionValue(key, rawValue);
         return `
         <div class="paradigm-row">
           <span class="paradigm-key">${escapeHtml(key.replace(/_/g, ' '))}</span>
@@ -2309,7 +2321,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
           Object.entries(paradigm).forEach(([key, value]) => {
             const field = document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
             if (!field) return;
-            field.value = stripInflectionPrefix(key, value);
+            field.value = normalizeInflectionValue(key, value);
             field.dispatchEvent(new Event('input', { bubbles: true }));
             filled += 1;
           });
@@ -2852,6 +2864,65 @@ function markTriageFieldProvenance(fieldKey, provider) {
   el.style.display = '';
 }
 
+// How "filled" is decided per field key — mirrors the provenance-badge set
+// above (triageProvenanceSrcId) exactly, since those are already the fields
+// the belt tracks individually. Not a readiness gate (status is still only
+// ever set by Accept) — purely a "what's left to look at" indicator, so a
+// field reads as empty here exactly when there's nothing in it to show the
+// operator, whether or not that's acceptable for this note.
+function triageFieldFilled(fieldKey) {
+  if (fieldKey === 'lemma') return !!document.getElementById('t_lemma').value.trim();
+  if (fieldKey === 'pos') return !!getPosValue('t_pos_select', 't_pos_custom');
+  if (fieldKey === 'transcription') return !!document.getElementById('t_transcription').value.trim();
+  if (fieldKey === 'translations') return readTranslationRows('t_translations_list').length > 0;
+  if (fieldKey === 'inflections') {
+    const values = readInflectionFields('t_inflections_fields');
+    return Object.values(values).some((v) => (v || '').trim());
+  }
+  if (fieldKey === 'context_text') return !!document.getElementById('t_context_text').value.trim();
+  if (fieldKey === 'audio') return !!(currentTriageNote && currentTriageNote.audio_blob) || !!triageStagedAudio;
+  return false;
+}
+
+// A field only counts if it's currently applicable — gated by the same
+// visibility the type/pos-driven show/hide logic already governs
+// (updateTriageFieldVisibility/updateTriageInflectionFields), read live off
+// the DOM rather than re-derived, so this can never drift out of sync with
+// what the operator can actually see and fill in.
+function triageFieldApplicable(fieldKey) {
+  if (fieldKey === 'lemma') return document.getElementById('t_lemma_field').style.display !== 'none';
+  if (fieldKey === 'pos') return document.getElementById('t_pos_field').style.display !== 'none';
+  if (fieldKey === 'transcription') return document.getElementById('t_transcription_field').style.display !== 'none';
+  if (fieldKey === 'inflections') return document.querySelectorAll('#t_inflections_fields [data-inflection-field]').length > 0;
+  // translations/context_text/audio have no type-gated visibility — every
+  // triage card shows all three regardless of type.
+  return true;
+}
+
+const TRIAGE_COMPLETION_FIELDS = ['lemma', 'pos', 'transcription', 'translations', 'inflections', 'context_text', 'audio'];
+
+function updateTriageCompletionStatus() {
+  const badge = document.getElementById('triageCompletionBadge');
+  if (!currentTriageNote) { if (badge) badge.textContent = ''; return; }
+
+  let total = 0;
+  let filled = 0;
+  TRIAGE_COMPLETION_FIELDS.forEach((fieldKey) => {
+    const applicable = triageFieldApplicable(fieldKey);
+    const markerEl = document.getElementById(`t_${fieldKey}_missing`);
+    if (!applicable) {
+      if (markerEl) markerEl.style.display = 'none';
+      return;
+    }
+    total += 1;
+    const isFilled = triageFieldFilled(fieldKey);
+    if (isFilled) filled += 1;
+    if (markerEl) markerEl.style.display = isFilled ? 'none' : '';
+  });
+
+  if (badge) badge.textContent = `${filled}/${total} fields filled`;
+}
+
 function clearTriageProvenanceBadges() {
   ['lemma', 'pos', 'transcription', 'translations', 'inflections', 'context_text', 'audio'].forEach((key) => {
     const el = document.getElementById(triageProvenanceSrcId(key));
@@ -2880,6 +2951,7 @@ document.getElementById('triageForm').addEventListener('input', (e) => {
     const el = document.getElementById('t_inflections_src');
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   }
+  updateTriageCompletionStatus();
 });
 
 function renderTriageAudioSection(note) {
@@ -2888,6 +2960,7 @@ function renderTriageAudioSection(note) {
   if (!note.audio_blob) {
     none.style.display = 'block';
     player.style.display = 'none';
+    updateTriageCompletionStatus();
     return;
   }
   none.style.display = 'none';
@@ -2896,6 +2969,7 @@ function renderTriageAudioSection(note) {
   const sel = note.audio_sel_ms;
   document.getElementById('t_audio_sel_note').textContent =
     sel && sel.length === 2 ? `trim ${(sel[0] / 1000).toFixed(2)} – ${(sel[1] / 1000).toFixed(2)} s (adjust in the editor)` : '';
+  updateTriageCompletionStatus();
 }
 
 async function showTriageNote() {
@@ -2908,6 +2982,7 @@ async function showTriageNote() {
     empty.style.display = 'block';
     cardWrap.style.display = 'none';
     verdictBar.style.display = 'none';
+    updateTriageCompletionStatus();
     return;
   }
   empty.style.display = 'none';
@@ -2953,6 +3028,7 @@ async function showTriageNote() {
     }
   }
 
+  updateTriageCompletionStatus();
   const settings = await fetchSettings();
   if ((settings.prefill_timing || 'on_open') === 'on_open') runTriagePrefill();
 }
@@ -2967,16 +3043,18 @@ function updateTriageFieldVisibility() {
   const type = document.getElementById('t_type').value;
   document.getElementById('t_grammar_rule_field').style.display = type === 'grammar' ? 'block' : 'none';
   applyTypeFieldVisibility('t', type);
+  updateTriageCompletionStatus();
 }
 
 document.getElementById('t_type').addEventListener('change', updateTriageFieldVisibility);
 wirePosCustomToggle('t_pos_select', 't_pos_custom', () => {
   const pos = getPosValue('t_pos_select', 't_pos_custom');
   updateTriageInflectionFields(pos, currentTriageNote && currentTriageNote.pos === pos ? currentTriageNote.inflections : null);
+  updateTriageCompletionStatus();
   // A changed PoS reshapes the inflection fields to a fresh, empty set —
   // "redo the inflections" means re-running the walk right away rather than
   // leaving the operator to notice and press prefill again.
-  prefillTriageInflections();
+  prefillTriageInflections().then(updateTriageCompletionStatus);
 });
 document.getElementById('t_add_translation').addEventListener('click', () => {
   addTranslationRow('t_translations_list', '', '', null);
@@ -3302,7 +3380,7 @@ async function prefillTriageInflections() {
   INFLECTION_SHAPES[pos].forEach((field) => {
     if (!current[field] && result.candidate.paradigm[field]) {
       const input = document.querySelector(`#t_inflections_fields [data-inflection-field="${field}"]`);
-      if (input) { input.value = stripInflectionPrefix(field, result.candidate.paradigm[field]); flashPrefilled(input); any = true; }
+      if (input) { input.value = normalizeInflectionValue(field, result.candidate.paradigm[field]); flashPrefilled(input); any = true; }
     }
   });
   if (any) markTriageFieldProvenance('inflections', result.provider);
@@ -3393,4 +3471,5 @@ async function runTriagePrefill() {
 
   syncSuggestQueries('t');
   if (filledCount > 0) enrichToast(`Prefilled ${filledCount} field${filledCount === 1 ? '' : 's'}`);
+  updateTriageCompletionStatus();
 }

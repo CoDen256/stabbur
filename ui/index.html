@@ -348,7 +348,7 @@
                     <textarea id="t_text" required></textarea>
                   </div>
                   <div class="field" id="t_lemma_field">
-                    <div class="field-label-row"><label for="t_lemma">Lemma</label><span class="spacer"></span><span class="src" id="t_lemma_src" style="display:none"></span></div>
+                    <div class="field-label-row"><label for="t_lemma">Lemma</label><span class="missing-marker" id="t_lemma_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_lemma_src" style="display:none"></span></div>
                     <input id="t_lemma" type="text">
                   </div>
                 </div>
@@ -363,7 +363,7 @@
                     </select>
                   </div>
                   <div class="field" id="t_pos_field">
-                    <div class="field-label-row"><label for="t_pos_select">Part of speech</label><span class="spacer"></span><span class="src" id="t_pos_src" style="display:none"></span></div>
+                    <div class="field-label-row"><label for="t_pos_select">Part of speech</label><span class="missing-marker" id="t_pos_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_pos_src" style="display:none"></span></div>
                     <select id="t_pos_select">
                       <option value="">— none —</option>
                       <option value="substantiv">substantiv</option>
@@ -386,7 +386,7 @@
                 </div>
                 <input id="t_source_lang" type="text" style="display:none">
                 <div class="field" id="t_transcription_field">
-                  <div class="field-label-row"><label for="t_transcription">Transcription</label><span class="spacer"></span><span class="src" id="t_transcription_src" style="display:none"></span></div>
+                  <div class="field-label-row"><label for="t_transcription">Transcription</label><span class="missing-marker" id="t_transcription_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_transcription_src" style="display:none"></span></div>
                   <input id="t_transcription" type="text">
                   <div class="suggest-control">
                     <button type="button" class="suggest-toggle" data-suggest-toggle="t_ipa_suggest">✨ Suggest pronunciations<span class="count" id="t_ipa_suggest_count" style="display:none"></span></button>
@@ -397,7 +397,7 @@
                   <div class="suggest-panel" id="t_ipa_suggest" data-kind="ipa" data-prefix="t"></div>
                 </div>
                 <div class="field">
-                  <div class="field-label-row"><label>Translations</label><span class="spacer"></span><span class="src" id="t_translations_src" style="display:none"></span></div>
+                  <div class="field-label-row"><label>Translations</label><span class="missing-marker" id="t_translations_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_translations_src" style="display:none"></span></div>
                   <div id="t_translations_list" class="translation-list"></div>
                   <button type="button" class="btn-ghost" id="t_add_translation">+ Add translation</button>
                   <div class="suggest-control">
@@ -409,7 +409,7 @@
                   <div class="suggest-panel" id="t_translations_suggest" data-kind="translations" data-prefix="t"></div>
                 </div>
                 <div class="field" id="t_inflections_field" style="display:none">
-                  <div class="field-label-row"><label>Inflections</label><span class="spacer"></span><span class="src" id="t_inflections_src" style="display:none"></span></div>
+                  <div class="field-label-row"><label>Inflections</label><span class="missing-marker" id="t_inflections_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_inflections_src" style="display:none"></span></div>
                   <div id="t_inflections_fields" class="inflection-fields"></div>
                   <div class="suggest-control" style="margin-top:10px;">
                     <button type="button" class="suggest-toggle" data-suggest-toggle="t_inflections_suggest">✨ Look up paradigm<span class="count" id="t_inflections_suggest_count" style="display:none"></span></button>
@@ -420,7 +420,7 @@
                   <div class="suggest-panel" id="t_inflections_suggest" data-kind="inflections" data-prefix="t"></div>
                 </div>
                 <div class="field">
-                  <div class="field-label-row"><label for="t_context_text">Context text</label><span class="spacer"></span><span class="src" id="t_context_text_src" style="display:none"></span></div>
+                  <div class="field-label-row"><label for="t_context_text">Context text</label><span class="missing-marker" id="t_context_text_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_context_text_src" style="display:none"></span></div>
                   <textarea id="t_context_text"></textarea>
                   <div class="suggest-control">
                     <button type="button" class="suggest-toggle" data-suggest-toggle="t_examples_suggest">✨ Suggest examples<span class="count" id="t_examples_suggest_count" style="display:none"></span></button>
@@ -440,7 +440,7 @@
             </div>
 
             <div>
-              <div class="field-label-row" style="margin-bottom:12px;"><h3 style="font-size:13px;">Audio</h3><span class="spacer"></span><span class="src" id="t_audio_src" style="display:none"></span></div>
+              <div class="field-label-row" style="margin-bottom:12px;"><h3 style="font-size:13px;">Audio</h3><span class="missing-marker" id="t_audio_missing" title="Not filled in" style="display:none">●</span><span class="spacer"></span><span class="src" id="t_audio_src" style="display:none"></span></div>
               <div id="t_audio_none" class="inline-note">No audio attached.</div>
               <div id="t_audio_player" style="display:none">
                 <audio id="t_audioElement" controls style="width:100%;" preload="metadata"></audio>
@@ -487,6 +487,7 @@
           <button type="button" class="btn-ghost" id="triageSaveBtn" title="Save this card's edits without accepting, skipping, or sending it back">Save <kbd>M</kbd></button>
           <span class="inline-note" style="margin:0 0 0 6px;">Save persists edits any time; navigation also saves them when the autosave setting is on</span>
           <span class="spacer"></span>
+          <span class="inline-note" id="triageCompletionBadge" title="Fields filled in on this card, out of the fields applicable to its current type/part of speech"></span>
           <button type="button" class="btn-primary" id="triageAcceptBtn">Mark ready &amp; next <kbd>R</kbd></button>
         </div>
       </div>
