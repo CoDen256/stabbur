@@ -35,6 +35,15 @@ irreducible homograph collisions the D3 signature can't distinguish
 (`tre` the tree / the numeral "three" / "to step" all collapse to one
 signature, since D3's tuple carries no part-of-speech). 7,582 is asserted
 as the measured, reproducible baseline going forward.
+
+**review-queue-filters task 2.1/2.3 re-measurement:** `normalize.py` now
+re-types 54 `core6k` rows whose single-word field actually held a sentence
+(`Jeg lærer norsk.`, `Hvor er nærmeste sykehus?`, …) from `word` to
+`listening` — so they're excluded from this count the same way every other
+`listening` row already is. Measured after that change: **7,534** (down
+48 from 7,582, not the full 54, since a few of those sentences shared a
+signature with another `word` candidate). Same measure-and-document
+convention as the count above.
 """
 
 from __future__ import annotations
@@ -46,8 +55,9 @@ import lexeme
 import stock
 
 # Measured baseline (see module docstring for how this compares to
-# design.md's 9,129 and why `listening` is excluded).
-DISTINCT_LEXEME_SIGNATURE_EXPECTED = 7582
+# design.md's 9,129 and why `listening` is excluded; review-queue-filters
+# task 2.1 moved 48 of these out via the core6k sentence re-routing).
+DISTINCT_LEXEME_SIGNATURE_EXPECTED = 7534
 
 
 class KeyCountMismatch(AssertionError):

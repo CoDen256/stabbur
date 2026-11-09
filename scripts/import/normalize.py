@@ -183,6 +183,48 @@ def is_numeral(text: str | None) -> bool:
     return bool(text) and text.strip().lower() in NUMERAL_WORDS
 
 
+# ---------------------------------------------------------------------------
+# Sentence-shape test (review-queue-filters tasks 2.2/3.1, design D1/D7).
+# Shared between the core6k mistyped-sentence re-routing (this module,
+# task 2.1) and the fully-known-sentence skip rule (judge.py task 3.2), so
+# detection and the skip rule cannot drift apart.
+# ---------------------------------------------------------------------------
+
+
+_SENTENCE_PUNCTUATION_RE = re.compile(r"[.!?…]$")
+# "den"/"de" are deliberately excluded: both are also the demonstrative
+# article in a full country name (`Den demokratiske republikken Kongo`,
+# `De forente stater`), which is a proper noun, not a sentence — measured
+# while tuning this test against core6k's `Country` model (task 2.3).
+_SENTENCE_PRONOUNS = frozenset({"jeg", "du", "han", "hun", "det", "vi", "dere", "man", "meg", "deg", "oss", "seg"})
+_SENTENCE_INTERROGATIVES = frozenset(
+    {"hva", "hvor", "hvordan", "hvorfor", "hvem", "når", "hvilken", "hvilke", "hvilket"}
+)
+
+
+def is_sentence_shaped(text: str | None) -> bool:
+    """Design D1/D7: an initial capital is the hard requirement — a
+    lowercase candidate is never sentence-shaped, however many words it
+    has (this is the guard task 3.3 depends on to protect lowercase
+    idioms). Multiword alone is not enough: core6k's `Country` model
+    supplies capitalised multiword proper nouns (`San Marino`, `New
+    Zealand`, `Sri Lanka`) that are not sentences, measured at 49 in this
+    bundle — so a corroborating signal is required too: sentence
+    punctuation, or a pronoun/interrogative token. A country name has
+    neither; `Jeg lærer norsk.`/`Hva betyr ... ?` have at least one."""
+    if not text:
+        return False
+    text = text.strip()
+    if not text or not text[0].isupper():
+        return False
+    if not is_multiword(text):
+        return False
+    if _SENTENCE_PUNCTUATION_RE.search(text):
+        return True
+    tokens = [tok.strip(".,!?…").lower() for tok in text.split()]
+    return any(tok in _SENTENCE_PRONOUNS or tok in _SENTENCE_INTERROGATIVES for tok in tokens)
+
+
 # Design D5: identical to the note editor's lemma guess (`deriveLemmaGuess`
 # in ui/ui.js — the function actually wired to the "From text" action
 # today; the `lemma-first-suggestions` change that introduced the simpler
@@ -461,8 +503,16 @@ def _normalize_a1(fields: dict) -> dict:
 def _normalize_core6k(fields: dict) -> dict:
     text = fields.get("Norwegian-Word", "").strip()
     translation = fields.get("English-Word", "").strip()
+    # Task 2.1/2.3 (design D7): core6k's `Norwegian-Word` field sometimes
+    # holds a whole sentence (`Hvor er nærmeste sykehus?`), which would
+    # otherwise escape every sentence-aware rule downstream. Re-typed here,
+    # where types are assigned, using the same shape test the
+    # fully-known-sentence skip rule uses (task 2.2) — a single-token
+    # capitalised entry (a proper-noun candidate) is untouched, since
+    # `is_sentence_shaped` also requires multiword.
+    note_type = "listening" if is_sentence_shaped(text) else "word"
     return {
-        "note_type": "word",
+        "note_type": note_type,
         "text": text,
         "pos": None,
         "translations": [{"lang": "en", "text": translation}] if translation else [],

@@ -257,3 +257,60 @@ as D1, so the two cannot drift apart.
   expressions (`å gå på tur`, `i gamle dager`) should be re-typed to
   `expression` by D7's mechanism. They are protected either way by D1's
   lowercase guard, so this is a tidiness question, not a correctness one.
+
+## Implementation measurement (tasks 2.3, 4.1-4.6, 6.3, 9.1, 9.5)
+
+**Blocker, same one design.md already records for the pos-lemma-inference
+change**: `STABBUR_IMPORT_STOCK_BUNDLE` is unavailable in this checkout, so
+`judge` cannot run end to end here — which blocks every number that needs
+the real known-token set (the fully-known-sentence rule's corpus-wide
+count, task 3.6/9.2/9.3/9.4). Those rules are implemented and unit-tested
+against fabricated known-sets (`tests/test_import_review_queue_filters.py`)
+rather than left unverified; whoever next has the bundle should re-run
+`judge`/`audit.py` to get the real sentence-rule figures.
+
+Everything *not* gated on the known-set was measured directly against the
+real bundle:
+
+```
+core6k sentence re-routing (task 2.1/2.3):      54   (design's "23" was
+                                                       illustrative, not
+                                                       exhaustive; 0 of the
+                                                       Country model's
+                                                       entries moved with
+                                                       them — "San Marino"/
+                                                       "New Zealand" have
+                                                       neither sentence
+                                                       punctuation nor a
+                                                       pronoun/interrogative
+                                                       token, see
+                                                       normalize.py)
+proper noun (task 4.1):                        185   (design 186)
+derived-from-proper-noun (task 4.2):            50   (design 50, exact)
+pure numeral (task 4.3):                        25   (design 26)
+                                                ───
+                                                260   (design 262)
+```
+
+Month-name/`kristen` leakage (task 9.5, D3's accepted leakage), read
+individually: `januar`, `februar`, `juni`, `september`, `kristen`,
+`kristendom` — six, all recoverable one at a time via `cli.py audit
+--recover <signature_key>` if the operator wants any of them back.
+
+Decision-precedence (task 6.3): the real store carries 2,589 recorded
+decisions. Re-running `normalize`→`key`→`merge` (the parts of the pipeline
+that could run without the stock bundle) left all 2,589 resolving to a
+candidate under the same `signature_key` — `key`'s signature count itself
+dropped from 7,582 to **7,534** (not 7,582 unchanged), because the 54
+re-typed core6k sentences are now excluded from the `note_type != 'listening'`
+count the same way every other `listening` row already was (`key.py`'s
+`DISTINCT_LEXEME_SIGNATURE_EXPECTED` updated accordingly).
+
+The `En god del`-class false-positive check (task 9.4) could only be
+partially measured without the known-set: of the real corpus's `expression`
+-typed candidates, **13** are sentence-shaped by `normalize.is_sentence_
+shaped` (`God dag!`, `Jeg også`, `Hun smiler`, `Hvilken butikk?`, `Hvor da?`,
+`Ja, gjerne.`, `Kom, Dina!`, `Ja, naturligvis!`, `Pannekaker, jippi!`, `Hei,
+Cecilie!`, `På utedoveggen?`, `God jul!`, `Jeg kan ikke tenke meg å …`) —
+design's "measured at 3" additionally requires every word of each to be
+known, which needs the stock bundle to confirm.

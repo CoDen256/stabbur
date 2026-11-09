@@ -24,6 +24,7 @@ from pathlib import Path
 # by putting this directory on sys.path first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import audit  # noqa: E402
 import baseline  # noqa: E402
 import store  # noqa: E402
 from stages import STAGE_FUNCS  # noqa: E402
@@ -69,6 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         "baseline",
         help="snapshot current review eligibility (review-queue-filters tasks 1.1/1.2)",
     )
+    audit_parser = sub.add_parser(
+        "audit",
+        help="before/after review-eligibility report (review-queue-filters section 5)",
+    )
+    audit_parser.add_argument("--recover", metavar="SIGNATURE_KEY", help="return one newly-skipped candidate to the queue")
+    audit_parser.add_argument("--json", action="store_true", help="print the raw report as JSON")
 
     args = parser.parse_args(argv)
     # `review` serves a Flask dev server, which can dispatch a request on a
@@ -84,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "baseline":
         baseline.write(conn)
         return 0
+
+    if args.command == "audit":
+        return audit.run_with_conn(conn, recover_signature_key=args.recover, as_json=args.json)
 
     try:
         count_in, count_out, count_discarded = run_stage(conn, args.command)

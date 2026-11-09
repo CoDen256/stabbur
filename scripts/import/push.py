@@ -37,6 +37,7 @@ import sqlite3
 import zipfile
 
 import ingest as ingest_stage
+import merge as merge_stage
 import requests
 
 DEFAULT_API_BASE = "http://localhost:5000"
@@ -183,6 +184,17 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
         """
     ).fetchall()
     count_in = len(accepted)
+
+    # Task 7.1/7.3 (design D6): review order -> push order -> notes.seq ->
+    # card_slots -> Cards[], the card INTRODUCTION ORDER on the device.
+    # `03-data-model.md` forbids ever reordering a published deck's
+    # Cards[] once introduced (PullCounter is a block index; reordering it
+    # silently skips cards and corrupts progress), so the frequency
+    # ranking review used has to survive into push unchanged — sorting by
+    # the same `merge.order_sort_key` the review queue uses, not iterating
+    # `accepted` in whatever order SQLite happened to return it. A future
+    # refactor must not "tidy" this sort away.
+    accepted = sorted(accepted, key=lambda row: merge_stage.order_sort_key(json.loads(row["order_key_json"])))
 
     pushed = 0
     skipped_already_pushed = 0
