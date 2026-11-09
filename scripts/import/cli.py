@@ -24,6 +24,7 @@ from pathlib import Path
 # by putting this directory on sys.path first.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import baseline  # noqa: E402
 import store  # noqa: E402
 from stages import STAGE_FUNCS  # noqa: E402
 
@@ -64,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     for stage in store.STAGES:
         sub.add_parser(stage, help=f"run the {stage} stage")
     sub.add_parser("status", help="print per-stage run state")
+    sub.add_parser(
+        "baseline",
+        help="snapshot current review eligibility (review-queue-filters tasks 1.1/1.2)",
+    )
 
     args = parser.parse_args(argv)
     # `review` serves a Flask dev server, which can dispatch a request on a
@@ -74,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "status":
         print_status(conn)
+        return 0
+
+    if args.command == "baseline":
+        baseline.write(conn)
         return 0
 
     try:

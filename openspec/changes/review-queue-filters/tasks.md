@@ -1,7 +1,7 @@
 ## 1. Baseline before anything changes
 
-- [ ] 1.1 Snapshot current review eligibility *before* touching any rule: per-type counts and the full set of `signature_key`s with `verdict='import'` (7,022 at time of writing). The whole change is judged against this; capture it first or the audit has nothing to compare to.
-- [ ] 1.2 Record the current verdict-rule histogram alongside it, so a rule that shifts for an unrelated reason is distinguishable from this change's effect.
+- [x] 1.1 Snapshot current review eligibility *before* touching any rule: per-type counts and the full set of `signature_key`s with `verdict='import'` (7,022 at time of writing). The whole change is judged against this; capture it first or the audit has nothing to compare to.
+- [x] 1.2 Record the current verdict-rule histogram alongside it, so a rule that shifts for an unrelated reason is distinguishable from this change's effect.
 
 ## 2. Type re-routing (design D7)
 
