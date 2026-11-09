@@ -123,6 +123,19 @@ Implemented as a **configurable** condition, defaulting to off, specifically
 so D5's audit can report the queue under both settings and the operator can
 overrule this decision from evidence rather than from argument.
 
+**Overridden (operator, 2026-11-09), from the audit's own evidence**: having
+seen the real split (503 of 506 fully-known-sentence skips carry audio), the
+operator decided the opposite of this section's rationale — they want audio
+presence kept in the queue regardless of word familiarity, and only the
+genuinely un-recorded fully-known sentences skipped. `judge.py`'s module-
+level `REQUIRE_NO_AUDIO_FOR_SENTENCE_RULE = True` now flips `judge.run()`'s
+own call into the audio-required branch; `judge_one`'s own default
+(`require_no_audio_for_sentence_rule=False`) is untouched, so D5's
+sensitivity line still reports both alternatives regardless of which one is
+actually applied. Real effect: the fully-known-sentence rule's contribution
+to the queue dropped from 506 (live store) to 3 — see the "Real post-run
+measurement" section below for the full before/after.
+
 ### D3 — Proper nouns, nationalities and numerals, by capitalisation agreement
 
 ```
@@ -171,6 +184,19 @@ So: new rules filter the *undecided*. Anything already decided keeps its
 decision and its eligibility, and the audit lists any candidate where a new
 rule disagreed with an existing decision — information worth seeing, but not
 worth acting on automatically.
+
+**Confirmed working as designed (operator, 2026-11-09):** `Hvor er nærmeste
+sykehus?` — the proposal's own motivating example — carries a `reject`
+decision from an earlier review session (`decided_at:
+2026-11-09T11:18:07`), recorded by hand before the no-audio sentence rule
+existed. It therefore reads as `verdict='import'` with
+`rule='all-tokens-known-phrase-unknown'` rather than
+`'fully-known-sentence'` — this rule's exemption, not a bug: the operator
+already rejected it themselves, and D4 means the new rule never re-judges
+it to agree or disagree. The queue only shows undecided candidates
+(`review.pending_queue`), so this one isn't "stuck" anywhere — it's
+correctly excluded from both review and push by the operator's own prior
+decision.
 
 ### D5 — The eligibility audit is a deliverable, not a log line
 
@@ -311,22 +337,31 @@ rules already run *first*: most proper-noun/nationality/numeral candidates
 independently taught by stock and get skipped as `attested-token-strong`/
 `weak` before the new rules are even reached. The new rules' own
 *distinguishing* contribution — candidates that would NOT otherwise have
-been skipped — is much smaller:
+been skipped — is much smaller, and shrank again once D2's default was
+overridden (next section):
 
 ```
-queue size, live store (2,589 recorded decisions):   7,022 -> 6,469  (-553)
-  fully-known-sentence:            506   (542 unconstrained minus 36
-                                           decision-precedence exemptions)
+queue size, live store, audio required absent for sentences,
+after the operator's own manual recovery of one false-positive
+expression:                                      7,022 -> 6,973  (-49)
+  fully-known-sentence:              2   (3 unconstrained-by-decision minus
+                                           1 the operator recovered by hand
+                                           — "Jeg kan ikke tenke meg å …",
+                                           an expression they judged they
+                                           don't actually know, despite
+                                           every word in it being known —
+                                           see D1's own "idiom made of
+                                           known words" scenario)
   proper-noun:                      27
   derived-from-proper-noun:          9
   numeral:                          11
-
-queue size, fresh run (no decisions):                7,022 -> 6,232  (-790)
 ```
 
-Both are below design's ~6,189/-833 estimate, for the reason above — the
-estimate assumed the new rules' raw hit counts (571+262) would all be
-*net new* skips, but a large share were already covered by D13.
+Both the live-store and fresh-run queue sizes are well above design's
+~6,189/-833 pre-build estimate — the estimate assumed (a) the new rules'
+raw hit counts (571+262) would all be *net new* skips, when a large share
+were already covered by D13, and (b) the audio condition off, which the
+operator then overrode (D2 section below).
 
 **Decision precedence (task 6.3):** re-running `normalize`→`key`→`judge`→
 `merge` against the live store left all 2,589 recorded decisions resolving

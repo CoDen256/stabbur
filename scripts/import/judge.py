@@ -44,6 +44,18 @@ import stock
 DENYLIST_PATH = Path(__file__).resolve().parent / "denylist.json"
 SKIPPED_REVIEW_LOG_PATH = Path(__file__).resolve().parent.parent.parent / "import" / "skipped_review.jsonl"
 
+# Operator decision (2026-11-09), overriding design D2's default: the
+# fully-known-sentence rule now DOES require the absence of audio —
+# reversing D2's own default off, from exactly the evidence D2 anticipated
+# ("the operator can overrule this decision from evidence rather than
+# argument"). Measured against the real store: 503 of 506 fully-known-
+# sentence skips carried audio; the operator wants those kept in the
+# review queue and only the 3 without audio actually skipped. This is
+# `judge.run()`'s own operational choice, not `judge_one`'s default
+# (`judge_one(require_no_audio_for_sentence_rule=False)` still defaults
+# off, so the audit's sensitivity line keeps reporting both alternatives).
+REQUIRE_NO_AUDIO_FOR_SENTENCE_RULE = True
+
 
 def load_denylist() -> frozenset[str]:
     data = json.loads(DENYLIST_PATH.read_text(encoding="utf-8"))
@@ -290,6 +302,7 @@ def run(conn: sqlite3.Connection, run_id: int) -> tuple[int, int, int]:
             note_type=row["note_type"],
             translations=json.loads(row["translations_json"]),
             audio_ref=row["audio_ref"],
+            require_no_audio_for_sentence_rule=REQUIRE_NO_AUDIO_FOR_SENTENCE_RULE,
             apply_new_rules=row["signature_key"] not in decided_signature_keys,
         )
         verdicts.append((row["signature_key"], verdict, rule, evidence))

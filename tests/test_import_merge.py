@@ -330,15 +330,14 @@ def test_ordering_coverage_rises_to_roughly_74_percent_with_core6k_rank(merged_c
     """Task 1.3: from 2,877/7,022 (41%) to ~5,170 (74%) once core6k's rank
     is a usable signal alongside freq6k's.
 
-    `verdict = 'import'` numbers here moved again once `review-queue-
-    filters` landed its real skip rules (its own `judge` previously
-    couldn't run in this checkout, so merge saw every candidate as
-    'import' by default) — the review queue itself shrank from 7,022 to
-    6,232 on a fresh pipeline run with no recorded decisions (a live store
-    with real operator decisions measures higher, since decision
-    precedence exempts already-decided candidates from the new rules —
-    see design.md), and the ordering coverage among what remains rose too,
-    since the newly-skipped sentences were disproportionately unordered."""
+    `verdict = 'import'` numbers here moved once `review-queue-filters`
+    landed its real skip rules, and moved again when the operator
+    overrode design D2's default (2026-11-09): the fully-known-sentence
+    rule now requires audio to be absent
+    (`judge.REQUIRE_NO_AUDIO_FOR_SENTENCE_RULE = True`), so most of that
+    rule's skips (503 of 506 on the live store) are back in the queue —
+    the review queue on a fresh pipeline run with no recorded decisions is
+    now 7,022 -> 6,756, not the no-audio-condition run's 6,232."""
     import json
 
     rows = merged_conn.execute(
@@ -352,8 +351,8 @@ def test_ordering_coverage_rises_to_roughly_74_percent_with_core6k_rank(merged_c
             json.loads(row["order_key_json"])
         )
     )
-    assert total == 6232
-    assert 0.76 <= ordered / total <= 0.82
+    assert total == 6756
+    assert 0.70 <= ordered / total <= 0.78
 
 
 def test_human_audio_coverage_drops_to_roughly_2100_items(merged_conn):
@@ -361,18 +360,18 @@ def test_human_audio_coverage_drops_to_roughly_2100_items(merged_conn):
     audio_ref before this fix, only the ~2,102 with genuine human
     recordings should keep one afterwards.
 
-    Re-measured post-`review-queue-filters`, same reason as the ordering
-    test above: that change's fully-known-sentence rule disproportionately
-    skips `listening` candidates, which are the type most likely to carry
-    human audio, so `verdict = 'import'` coverage drops further than this
-    task's own original 2,000-2,200 estimate."""
+    Re-measured after the operator overrode D2's default (2026-11-09) to
+    require no audio for the fully-known-sentence skip: with that rule
+    now skipping far fewer `listening` candidates, audio coverage among
+    `verdict = 'import'` rows is back close to the original ~2,100
+    estimate rather than the no-audio-condition run's measured ~2,053."""
     import json
 
     rows = merged_conn.execute(
         "SELECT fields_json FROM candidate WHERE verdict = 'import'"
     ).fetchall()
     with_audio = sum(1 for row in rows if json.loads(row["fields_json"]).get("audio_ref"))
-    assert 1450 <= with_audio <= 1600
+    assert 1950 <= with_audio <= 2150
 
 
 def test_pos_lemma_corpus_distribution_matches_measured(merged_conn):

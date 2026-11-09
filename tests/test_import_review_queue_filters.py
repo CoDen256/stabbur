@@ -414,6 +414,66 @@ def test_run_exempts_decided_signatures_from_new_rules(monkeypatch, tmp_path):
     assert verdict_row["verdict"] == "import"
 
 
+def test_run_applies_the_operator_override_requiring_no_audio_for_sentence_rule(monkeypatch, tmp_path):
+    """Operator decision (2026-11-09), overriding design D2's default off:
+    `judge.run()` now calls `judge_one` with
+    `require_no_audio_for_sentence_rule=True`
+    (`judge.REQUIRE_NO_AUDIO_FOR_SENTENCE_RULE`), so a fully-known sentence
+    that has a recording imports rather than being skipped — only a
+    fully-known sentence with NO recording still skips."""
+    conn = import_store.connect(tmp_path / "test.db")
+    run_id = import_store.start_run(conn, "ingest")
+    conn.execute(
+        "INSERT INTO raw_note (run_id, source, source_note_id, note_type, fields_json) VALUES (?, 'ntnu', '1', 'listening', '{}')",
+        (run_id,),
+    )
+    conn.execute(
+        "INSERT INTO raw_note (run_id, source, source_note_id, note_type, fields_json) VALUES (?, 'ntnu', '2', 'listening', '{}')",
+        (run_id,),
+    )
+    with_audio_id = conn.execute(
+        """
+        INSERT INTO normalized (run_id, raw_note_id, source, note_type, text, translations_json, inflections_json, audio_ref, order_signal_json, notation_json)
+        VALUES (?, 1, 'ntnu', 'listening', 'Jeg er norsk', '[]', '{}', 'recording.mp3', '{}', '{}')
+        """,
+        (run_id,),
+    ).lastrowid
+    without_audio_id = conn.execute(
+        """
+        INSERT INTO normalized (run_id, raw_note_id, source, note_type, text, translations_json, inflections_json, audio_ref, order_signal_json, notation_json)
+        VALUES (?, 2, 'ntnu', 'listening', 'Jeg er norsk her', '[]', '{}', NULL, '{}', '{}')
+        """,
+        (run_id,),
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO signature (run_id, normalized_id, signature_key, head_lemma, particles_json, reflexive, complements_json) VALUES (?, ?, 'sig-with-audio', 'jeg', '[]', 0, '[\"er\", \"norsk\"]')",
+        (run_id, with_audio_id),
+    )
+    conn.execute(
+        "INSERT INTO signature (run_id, normalized_id, signature_key, head_lemma, particles_json, reflexive, complements_json) VALUES (?, ?, 'sig-without-audio', 'jeg', '[]', 0, '[\"er\", \"norsk\", \"her\"]')",
+        (run_id, without_audio_id),
+    )
+    conn.commit()
+
+    monkeypatch.setattr(import_judge, "build_known_set_context", lambda conn: {
+        "lemma_map": {},
+        "known_tokens": _known("jeg", "er", "norsk", "her"),
+        "known_tokens_strong": {},
+        "known_ngrams": {},
+        "known_by_head_lemma": {},
+        "denylist": frozenset(),
+    })
+
+    run_id = import_store.start_run(conn, "judge")
+    import_judge.run(conn, run_id)
+
+    with_audio_verdict = conn.execute("SELECT verdict, rule FROM verdict WHERE signature_key = 'sig-with-audio'").fetchone()
+    without_audio_verdict = conn.execute("SELECT verdict, rule FROM verdict WHERE signature_key = 'sig-without-audio'").fetchone()
+    assert with_audio_verdict["verdict"] == "import"
+    assert without_audio_verdict["verdict"] == "skip"
+    assert without_audio_verdict["rule"] == "fully-known-sentence"
+
+
 # ---------------------------------------------------------------------------
 # Push ordering (tasks 7.1/7.2, design D6)
 # ---------------------------------------------------------------------------

@@ -138,14 +138,16 @@ def test_dry_run_funnel_is_in_the_measured_ballpark(dry_run_conn):
     was this change's own measured baseline (design.md's D13 section)
     before `review-queue-filters` added its own skip rules (fully-known-
     sentence, proper-noun, derived-from-proper-noun, numeral) on top of
-    D13's attestation rules — those additionally skip ~9% of signatures on
-    a fresh run with no recorded decisions, moving the real rate to
-    ~31%."""
+    D13's attestation rules. The operator then overrode design D2's
+    default (2026-11-09), requiring audio to be absent for the fully-
+    known-sentence rule — most of that rule's hits carry audio, so this
+    pulled the rate back down from the no-audio-condition run's measured
+    31.1% to ~25%."""
     total = dry_run_conn.execute("SELECT COUNT(DISTINCT signature_key) FROM signature").fetchone()[0]
     skipped = dry_run_conn.execute("SELECT COUNT(DISTINCT signature_key) FROM verdict WHERE verdict='skip'").fetchone()[0]
     assert total == 9009
     skip_rate = skipped / total
-    assert 0.28 <= skip_rate <= 0.34  # measured 31.1% post-review-queue-filters; was 22.1%
+    assert 0.22 <= skip_rate <= 0.28  # measured 25.2% with audio required absent; was 22.1% pre-review-queue-filters
 
 
 @pytest.mark.skipif(not (_HAS_SOURCES and _HAS_STOCK), reason="needs real archives + stock bundle")
