@@ -175,6 +175,46 @@ similarity signal for the `similar-notes-merge` change, whose morphology
 signal currently has low recall precisely because no candidate has a lemma.
 The two changes compound; neither depends on the other.
 
+### D6 — Entries with no canonical part of speech become `type=expression`
+
+Operator decision (2026-11-09). Measured over the 1,729 genuinely unresolved
+`type=word` candidates:
+
+```
+1,266  single content word  → needs a lookup (not this change — see
+                              `pos-suggest-from-ordbank`)
+  207  proper noun
+  172  multiword            → type=expression
+   51  phrase / greeting    → type=expression
+                              ("god tur!", "ha det bra!", "bare bra!")
+   30  pronoun / determiner → type=expression
+    3  function word
+```
+
+Plus the source-labelled categories D3 leaves unmapped: `set phrase` (35),
+`interjection` (29), `pronoun` (16), `determiner` (59), and the numerals
+visible in the unresolved sample (`seks`, `ni`, `ti`, `åtte`, `elleve`,
+`tolv`, `tretten`, …).
+
+Rationale: the canonical six exist because `tun/docs/03-data-model.md` maps
+them onto decks `C20`-`C25`. **There is no deck for a pronoun, determiner,
+numeral or interjection** — so no amount of part-of-speech detection makes
+such a note usable. Ordbank will correctly report `seks` as `det`; that does
+not give it a home.
+
+`type=expression` does, via `C26`, which decks by *type* and needs no part
+of speech at all. So the right fix for these is a type change, not a
+classification — and a chunk of what looked like a part-of-speech gap was
+never one.
+
+This supersedes this section's earlier open question about `set phrase`
+alone; the same reasoning covers the whole group.
+
+Scope boundary: type routing is otherwise `bulk-import-anki-csv` task 3.8's
+job. This change owns only the *no-canonical-part-of-speech implies
+expression* rule, because it is the one case where the part-of-speech
+decision determines the type rather than the other way round.
+
 ## Risks / Open Questions
 
 - **The 76% figure assumes the inflection parsers are correct.** `normalize`
@@ -189,11 +229,14 @@ The two changes compound; neither depends on the other.
 - **`notes.pos` is unconstrained**, so nothing prevents a future writer from
   reintroducing `noun`. A `CHECK` constraint would, but it is a stabbur
   change and the editor's `__custom__` option complicates it (non-goal).
-- **Open**: whether `set phrase` (35) should instead route to
-  `type=expression` rather than being left without a part of speech. It is a
-  type signal masquerading as a part-of-speech value, and type routing is
-  task 3.8's job, not this change's — but the two interact and nobody has
-  looked.
+- **Resolved (operator, 2026-11-09): entries with no canonical part of
+  speech become `type=expression`.** `set phrase` was the visible case, but
+  the measurement found the same shape across ~250-300 candidates currently
+  typed `word`: 172 multiword entries, 51 phrases/greetings (`god tur!`,
+  `ha det bra!`, `bare bra!`), 30 pronouns/determiners, plus numerals and
+  interjections. These are not part-of-speech failures at all — they are
+  type-routing failures leaking into this problem, and `type=expression`
+  decks to `C26` by type rather than needing a part of speech. See D6.
 - **A lexeme signature can merge two homographs' inflections across
   sources**, found during the task 6.3 spot-check. `merge.py`'s field
   priority picks `inflections` independently of `text` — for `"tre"`

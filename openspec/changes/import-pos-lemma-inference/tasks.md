@@ -20,6 +20,15 @@
 - [x] 2.6 Only `type=word` notes get a part of speech (design's scope note). `expression` and `listening` deck by type (`C26`/`C27`) — leaving it unset is correct, not incomplete.
 - [x] 2.7 Unresolved stays unresolved. **No defaulting to `substantiv`** under any circumstance.
 
+## 2b. Type routing for entries with no canonical part of speech (design D6)
+
+- [ ] 2b.1 A candidate currently typed `word` whose source category has no canonical part of speech — `set phrase` (35), `interjection` (29), `pronoun` (16), `determiner` (59) — is routed to `type=expression`, not left as a `word` with no part of speech.
+- [ ] 2b.2 Same for the shapes the measurement found: multiword entries (172), and entries ending in `!`/`?` (51 — `god tur!`, `ha det bra!`, `bare bra!`).
+- [ ] 2b.3 Numerals (`seks`, `ni`, `ti`, `åtte`, `elleve`, `tolv`, `tretten`, …) route to `type=expression` for the same reason — there is no numeral deck.
+- [ ] 2b.4 An `expression` gets neither `pos` nor `lemma` (tasks 2.6, 4.3 already say this) — confirm the routing runs **before** those checks so a re-typed entry is not also given a part of speech.
+- [ ] 2b.5 Coordinate with `bulk-import-anki-csv` task 3.8, which owns type routing generally. This change owns only the no-canonical-part-of-speech rule; do not duplicate 3.8's other logic here.
+- [ ] 2b.6 Expect ~250-300 candidates to move from `word` to `expression`. Assert the count, and assert the `word` unresolved figure drops correspondingly from ~1,729.
+
 ## 3. Conflicts
 
 - [x] 3.1 Where two signals imply different parts of speech, apply the higher-precedence value **and** record the disagreement as a conflict on the candidate, reusing `merge`'s existing cross-source conflict mechanism (design D4) so the review UI surfaces it with no new presentation work.
