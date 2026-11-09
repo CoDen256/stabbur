@@ -146,114 +146,131 @@ def test_rerunning_judge_and_merge_preserves_decisions(conn):
 
 
 # ---------------------------------------------------------------------------
-# listening interleave (operator decision, 2026-11-09): listening
-# candidates almost never carry a natural order signal and so cluster
-# entirely at the tail of order_sort_key's own ordering. A first
-# stride-based attempt (recomputing an insertion index fresh from array-
-# position 0 on every call) treadmilled — found by direct observation,
-# never surfacing a listening candidate across 20+ simulated decisions —
-# replaced with a baseline-anchored "overdue" check: two monotonically
-# increasing decided-counts (rest, listening) compared against a ratio
-# frozen the first time this ran, so progress can only ever move forward.
+# no-signal interleave (operator decision, 2026-11-09, generalised from an
+# initial listening-only fix the same day): ANY candidate with no ranking
+# signal — not just `listening` (`frequency_index`/`core6k_rank` only ever
+# attach to word-sourced rows), but also `word`/`expression` candidates
+# freq6k/core6k/CEFR/chapter data never reached — clusters entirely at the
+# tail of order_sort_key's own ordering. A first stride-based attempt
+# (recomputing an insertion index fresh from array-position 0 on every
+# call) treadmilled — found by direct observation, never surfacing a
+# candidate across 20+ simulated decisions — replaced with a baseline-
+# anchored "overdue" check: two monotonically increasing decided-counts
+# (signaled, unsignaled) compared against a ratio frozen the first time
+# this ran, so progress can only ever move forward.
 # ---------------------------------------------------------------------------
 
 
 def _patch_baseline_path(monkeypatch, tmp_path):
-    path = tmp_path / "listening_interleave_baseline.json"
-    monkeypatch.setattr(import_review, "LISTENING_INTERLEAVE_BASELINE_PATH", path)
+    path = tmp_path / "no_signal_interleave_baseline.json"
+    monkeypatch.setattr(import_review, "NO_SIGNAL_INTERLEAVE_BASELINE_PATH", path)
     return path
 
 
-def _seed_rest_and_listening(conn, n_rest, n_listening):
-    for i in range(n_rest):
+def _seed_signaled_and_unsignaled(conn, n_signaled, n_unsignaled, unsignaled_note_type="listening"):
+    for i in range(n_signaled):
         _insert_candidate(
             conn, f"w{i}", fields={"text": f"w{i}", "note_type": "word"},
             order_key={"frequency_index": i, "cefr": None, "chapter": None},
         )
-    for i in range(n_listening):
+    for i in range(n_unsignaled):
         _insert_candidate(
-            conn, f"l{i}", fields={"text": f"l{i}", "note_type": "listening"},
+            conn, f"l{i}", fields={"text": f"l{i}", "note_type": unsignaled_note_type},
             order_key={"frequency_index": None, "cefr": None, "chapter": None},
         )
 
 
 def test_baseline_is_created_once_and_reused(conn, monkeypatch, tmp_path):
     path = _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 4, 2)
+    _seed_signaled_and_unsignaled(conn, 4, 2)
     assert not path.exists()
-    baseline = import_review._load_or_create_listening_interleave_baseline(conn)
+    baseline = import_review._load_or_create_no_signal_interleave_baseline(conn)
     assert path.exists()
-    again = import_review._load_or_create_listening_interleave_baseline(conn)
+    again = import_review._load_or_create_no_signal_interleave_baseline(conn)
     assert again == baseline
 
 
 def test_baseline_captures_zero_debt_for_already_decided_candidates(conn, monkeypatch, tmp_path):
     """The whole point of freezing a baseline at first-run time: candidates
     decided *before* this feature existed must never count as an "owed"
-    backlog of listening cards to dump all at once."""
+    backlog of unsignaled cards to dump all at once."""
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 10, 10)
+    _seed_signaled_and_unsignaled(conn, 10, 10)
     for i in range(8):
         import_review.record_decision(conn, f"w{i}", "accept")
 
-    baseline = import_review._load_or_create_listening_interleave_baseline(conn)
-    assert baseline["decided_rest_at_baseline"] == 8
-    assert baseline["decided_listening_at_baseline"] == 0
+    baseline = import_review._load_or_create_no_signal_interleave_baseline(conn)
+    assert baseline["decided_signaled_at_baseline"] == 8
+    assert baseline["decided_unsignaled_at_baseline"] == 0
     # Immediately after the baseline is captured, nothing is overdue yet —
     # the 8 pre-existing decisions are not treated as debt.
-    assert import_review.listening_candidate_is_due(conn) is False
+    assert import_review.unsignaled_candidate_is_due(conn) is False
 
 
-def test_listening_becomes_due_after_enough_rest_decisions(conn, monkeypatch, tmp_path):
+def test_unsignaled_becomes_due_after_enough_signaled_decisions(conn, monkeypatch, tmp_path):
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 10, 10)  # target_ratio = 1.0
-    import_review._load_or_create_listening_interleave_baseline(conn)  # freeze baseline at 0/0
+    _seed_signaled_and_unsignaled(conn, 10, 10)  # target_ratio = 1.0
+    import_review._load_or_create_no_signal_interleave_baseline(conn)  # freeze baseline at 0/0
 
-    assert import_review.listening_candidate_is_due(conn) is False
+    assert import_review.unsignaled_candidate_is_due(conn) is False
     import_review.record_decision(conn, "w0", "accept")
-    assert import_review.listening_candidate_is_due(conn) is True
+    assert import_review.unsignaled_candidate_is_due(conn) is True
 
 
-def test_due_check_resolves_once_the_listening_candidate_is_decided(conn, monkeypatch, tmp_path):
+def test_due_check_resolves_once_the_unsignaled_candidate_is_decided(conn, monkeypatch, tmp_path):
     """Confirms there's no treadmill: becoming "due" and then actually
     deciding that candidate clears the debt, rather than perpetually
     recomputing a position that's never reached."""
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 10, 10)
-    import_review._load_or_create_listening_interleave_baseline(conn)
+    _seed_signaled_and_unsignaled(conn, 10, 10)
+    import_review._load_or_create_no_signal_interleave_baseline(conn)
     import_review.record_decision(conn, "w0", "accept")
-    assert import_review.listening_candidate_is_due(conn) is True
+    assert import_review.unsignaled_candidate_is_due(conn) is True
 
     import_review.record_decision(conn, "l0", "accept")
-    assert import_review.listening_candidate_is_due(conn) is False
+    assert import_review.unsignaled_candidate_is_due(conn) is False
 
 
-def test_pending_queue_surfaces_a_due_listening_candidate_first(conn, monkeypatch, tmp_path):
+def test_pending_queue_surfaces_a_due_unsignaled_candidate_first(conn, monkeypatch, tmp_path):
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 10, 10)
-    import_review._load_or_create_listening_interleave_baseline(conn)
+    _seed_signaled_and_unsignaled(conn, 10, 10)
+    import_review._load_or_create_no_signal_interleave_baseline(conn)
     import_review.record_decision(conn, "w0", "accept")
 
     pending = import_review.pending_queue(conn)
     assert json.loads(pending[0]["fields_json"])["note_type"] == "listening"
 
 
-def test_pending_queue_does_not_surface_listening_when_not_due(conn, monkeypatch, tmp_path):
+def test_pending_queue_does_not_surface_unsignaled_when_not_due(conn, monkeypatch, tmp_path):
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 10, 10)
-    import_review._load_or_create_listening_interleave_baseline(conn)
+    _seed_signaled_and_unsignaled(conn, 10, 10)
+    import_review._load_or_create_no_signal_interleave_baseline(conn)
 
     pending = import_review.pending_queue(conn)
     assert json.loads(pending[0]["fields_json"])["note_type"] == "word"
 
 
-def test_listening_surfaces_repeatedly_not_just_once(conn, monkeypatch, tmp_path):
+def test_unsignaled_word_and_expression_candidates_are_also_interleaved(conn, monkeypatch, tmp_path):
+    """Not scoped to `listening` specifically — a `word`/`expression`
+    candidate with no ranking signal is exactly as overdue as a
+    `listening` one, since the partition is "has an order signal",
+    not "is listening"."""
+    _patch_baseline_path(monkeypatch, tmp_path)
+    _seed_signaled_and_unsignaled(conn, 10, 10, unsignaled_note_type="expression")
+    import_review._load_or_create_no_signal_interleave_baseline(conn)
+    import_review.record_decision(conn, "w0", "accept")
+
+    pending = import_review.pending_queue(conn)
+    assert json.loads(pending[0]["fields_json"])["note_type"] == "expression"
+
+
+def test_unsignaled_surfaces_repeatedly_not_just_once(conn, monkeypatch, tmp_path):
     """Integration: simulate the operator deciding whatever `pending_queue`
-    puts in front of them, repeatedly — listening candidates must surface
+    puts in front of them, repeatedly — unsignaled candidates must surface
     more than once across the session, not just the first time."""
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 30, 10)
-    import_review._load_or_create_listening_interleave_baseline(conn)
+    _seed_signaled_and_unsignaled(conn, 30, 10)
+    import_review._load_or_create_no_signal_interleave_baseline(conn)
 
     seen_note_types = []
     for _ in range(25):
@@ -267,13 +284,29 @@ def test_listening_surfaces_repeatedly_not_just_once(conn, monkeypatch, tmp_path
     assert seen_note_types.count("listening") >= 2
 
 
+def test_round_robin_mixes_note_types_rather_than_exhausting_one_first():
+    """Regression: within the unsignaled pool itself, `word`/`expression`
+    happened to cluster before any `listening` in the underlying stable
+    order — taking raw position 0 repeatedly exhausted ~350 word/
+    expression candidates before a single listening one surfaced.
+    `_round_robin_by_note_type` must mix types from the start instead."""
+    rows = (
+        [{"signature_key": f"w{i}", "fields_json": json.dumps({"note_type": "word"})} for i in range(5)]
+        + [{"signature_key": f"l{i}", "fields_json": json.dumps({"note_type": "listening"})} for i in range(20)]
+    )
+    result = import_review._round_robin_by_note_type(rows)
+    first_five_types = [json.loads(r["fields_json"])["note_type"] for r in result[:5]]
+    assert "listening" in first_five_types
+    assert "word" in first_five_types
+
+
 def test_pending_queue_never_surfaces_a_decided_candidate(conn, monkeypatch, tmp_path):
-    """A listening candidate can never be shown earlier than where review
-    currently stands — `pending_queue` filters decided candidates before
-    anything else, so a due listening candidate is inserted among what's
-    left, never ahead of (or reviving) something already decided."""
+    """An unsignaled candidate can never be shown earlier than where
+    review currently stands — `pending_queue` filters decided candidates
+    before anything else, so a due unsignaled candidate is inserted among
+    what's left, never ahead of (or reviving) something already decided."""
     _patch_baseline_path(monkeypatch, tmp_path)
-    _seed_rest_and_listening(conn, 4, 1)
+    _seed_signaled_and_unsignaled(conn, 4, 1)
     import_review.record_decision(conn, "w0", "accept")
     import_review.record_decision(conn, "w1", "accept")
 

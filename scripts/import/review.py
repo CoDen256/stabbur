@@ -34,8 +34,8 @@ from pathlib import Path
 
 import merge as merge_stage
 
-LISTENING_INTERLEAVE_BASELINE_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "import" / "listening_interleave_baseline.json"
+NO_SIGNAL_INTERLEAVE_BASELINE_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "import" / "no_signal_interleave_baseline.json"
 )
 
 
@@ -54,92 +54,146 @@ def _note_type(row: sqlite3.Row) -> str | None:
     return json.loads(row["fields_json"]).get("note_type")
 
 
-def _rest_and_listening_counts(conn: sqlite3.Connection) -> tuple[int, int, int, int]:
-    """(rest_total, listening_total, decided_rest, decided_listening) over
-    the whole queue (task 6.1's `verdict == 'import'` set) — `rest` is
-    every non-`listening` candidate."""
+def _has_order_signal(row: sqlite3.Row) -> bool:
+    """Same "has any ranking signal" test `merge.order_sort_key` uses to
+    decide whether a candidate sorts in a real tier or in the final
+    "no signal sorts last" tier (design D7) — reused here rather than
+    reimplemented, so the two can't drift apart. Not just `listening`:
+    measured against the live store, 255 `word` and 97 `expression`
+    candidates ALSO carry no signal (no `freq6k`/`core6k`/CEFR/chapter
+    data reached them), and fall into the exact same tail."""
+    order_key = json.loads(row["order_key_json"])
+    return bool(
+        order_key.get("frequency_index") is not None
+        or order_key.get("core6k_rank") is not None
+        or order_key.get("cefr")
+        or order_key.get("chapter")
+    )
+
+
+def _signaled_and_unsignaled_counts(conn: sqlite3.Connection) -> tuple[int, int, int, int]:
+    """(signaled_total, unsignaled_total, decided_signaled, decided_unsignaled)
+    over the whole queue (task 6.1's `verdict == 'import'` set)."""
     full = queue(conn)
     decided = decided_signature_keys(conn)
-    rest_total = listening_total = decided_rest = decided_listening = 0
+    signaled_total = unsignaled_total = decided_signaled = decided_unsignaled = 0
     for row in full:
-        is_listening = _note_type(row) == "listening"
+        has_signal = _has_order_signal(row)
         is_decided = row["signature_key"] in decided
-        if is_listening:
-            listening_total += 1
-            decided_listening += is_decided
+        if has_signal:
+            signaled_total += 1
+            decided_signaled += is_decided
         else:
-            rest_total += 1
-            decided_rest += is_decided
-    return rest_total, listening_total, decided_rest, decided_listening
+            unsignaled_total += 1
+            decided_unsignaled += is_decided
+    return signaled_total, unsignaled_total, decided_signaled, decided_unsignaled
 
 
-def _load_or_create_listening_interleave_baseline(conn: sqlite3.Connection) -> dict:
-    """Operator decision (2026-11-09): `listening` candidates almost never
-    carry a natural ordering signal — `frequency_index`/`core6k_rank` only
-    ever attach to word-sourced rows — so under plain `order_sort_key`
-    they fall entirely into its own "no signal sorts last" tier and
-    cluster at the very tail. Measured against the live store: the
-    no-signal tier doesn't start until position 5,214 of 6,973, and 1,407
-    of 1,434 `listening` candidates live in it — which is why 2,500
-    reviews in, the operator had not seen a single one.
+def _load_or_create_no_signal_interleave_baseline(conn: sqlite3.Connection) -> dict:
+    """Operator decision (2026-11-09, generalised from an initial
+    `listening`-only fix the same day): any candidate with no ranking
+    signal at all — not just `listening` (`frequency_index`/`core6k_rank`
+    only ever attach to word-sourced rows), but also the `word`/
+    `expression` candidates `freq6k`/`core6k`/CEFR/chapter data never
+    reached — falls entirely into `order_sort_key`'s own "no signal sorts
+    last" tier and clusters at the very tail. Measured against the live
+    store: the no-signal tier didn't start until position 5,214 of
+    6,973, and held 1,407 `listening` + 255 `word` + 97 `expression`
+    candidates — which is why 2,500 reviews in, the operator had not seen
+    a single `listening` candidate, and wouldn't have hit most of these
+    others either.
 
     A snapshot of where review stood *the first time this feature ran*:
-    how many non-`listening` ("rest") and `listening` candidates were
-    already decided, and the ratio of what's left of each. Written once,
-    to `import/listening_interleave_baseline.json` (same convention as
+    how many signaled and unsignaled candidates were already decided, and
+    the ratio of what's left of each. Written once, to
+    `import/no_signal_interleave_baseline.json` (same convention as
     `baseline_eligibility.json`), and never updated after — this is the
-    anchor an "overdue" check (`listening_candidate_is_due`) measures
+    anchor an "overdue" check (`unsignaled_candidate_is_due`) measures
     progress *since*, so the fix only affects reviewing from here
-    forward, never retroactively treats the operator's existing 2,700+
-    decided candidates as a backlog of "owed" `listening` cards to dump
-    all at once."""
-    if LISTENING_INTERLEAVE_BASELINE_PATH.exists():
-        return json.loads(LISTENING_INTERLEAVE_BASELINE_PATH.read_text(encoding="utf-8"))
+    forward, never retroactively treats the operator's existing decided
+    candidates as a backlog of "owed" cards to dump all at once."""
+    if NO_SIGNAL_INTERLEAVE_BASELINE_PATH.exists():
+        return json.loads(NO_SIGNAL_INTERLEAVE_BASELINE_PATH.read_text(encoding="utf-8"))
 
-    rest_total, listening_total, decided_rest, decided_listening = _rest_and_listening_counts(conn)
-    rest_remaining = rest_total - decided_rest
-    listening_remaining = listening_total - decided_listening
+    signaled_total, unsignaled_total, decided_signaled, decided_unsignaled = _signaled_and_unsignaled_counts(conn)
+    signaled_remaining = signaled_total - decided_signaled
+    unsignaled_remaining = unsignaled_total - decided_unsignaled
     baseline = {
-        "decided_rest_at_baseline": decided_rest,
-        "decided_listening_at_baseline": decided_listening,
-        "target_ratio": listening_remaining / rest_remaining if rest_remaining else 0.0,
+        "decided_signaled_at_baseline": decided_signaled,
+        "decided_unsignaled_at_baseline": decided_unsignaled,
+        "target_ratio": unsignaled_remaining / signaled_remaining if signaled_remaining else 0.0,
     }
-    LISTENING_INTERLEAVE_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LISTENING_INTERLEAVE_BASELINE_PATH.write_text(json.dumps(baseline, indent=2), encoding="utf-8")
+    NO_SIGNAL_INTERLEAVE_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NO_SIGNAL_INTERLEAVE_BASELINE_PATH.write_text(json.dumps(baseline, indent=2), encoding="utf-8")
     return baseline
 
 
-def listening_candidate_is_due(conn: sqlite3.Connection) -> bool:
-    """Whether the `rest` (non-`listening`) decisions made *since the
-    baseline* have outpaced the `listening` decisions made since the same
-    baseline, relative to `target_ratio` — i.e. whether a `listening`
-    candidate is now overdue and should be surfaced immediately.
+def unsignaled_candidate_is_due(conn: sqlite3.Connection) -> bool:
+    """Whether the signaled decisions made *since the baseline* have
+    outpaced the unsignaled decisions made since the same baseline,
+    relative to `target_ratio` — i.e. whether an unsignaled candidate
+    (`listening`, or a `word`/`expression` with no ranking data) is now
+    overdue and should be surfaced immediately.
 
     Deliberately NOT a position-counting loop over the current undecided
     array (the first attempt at this, found broken by direct observation:
     recomputing a stride-based insertion index fresh from array-index 0
     on every single call is a treadmill — each decision only ever strips
-    exactly one item from the front, so "the next listening candidate is
+    exactly one item from the front, so "the next unsignaled candidate is
     always ~3 items away" stays true forever, no matter how many
     decisions happen, because the count never actually advances toward
     it). This instead compares two *monotonically increasing* counters —
-    decided-rest-count and decided-listening-count, both backed by
+    decided-signaled-count and decided-unsignaled-count, both backed by
     `decision`, which never resets or rewinds — so "how overdue are we"
     only ever moves in the right direction, and resolves to exactly 0 the
-    moment the operator actually decides the overdue `listening`
-    candidate (rather than merely being shown it)."""
-    baseline = _load_or_create_listening_interleave_baseline(conn)
-    _, _, decided_rest_now, decided_listening_now = _rest_and_listening_counts(conn)
-    rest_progress = decided_rest_now - baseline["decided_rest_at_baseline"]
-    listening_progress = decided_listening_now - baseline["decided_listening_at_baseline"]
-    target_listening_by_now = math.floor(rest_progress * baseline["target_ratio"])
-    return target_listening_by_now > listening_progress
+    moment the operator actually decides the overdue candidate (rather
+    than merely being shown it)."""
+    baseline = _load_or_create_no_signal_interleave_baseline(conn)
+    _, _, decided_signaled_now, decided_unsignaled_now = _signaled_and_unsignaled_counts(conn)
+    signaled_progress = decided_signaled_now - baseline["decided_signaled_at_baseline"]
+    unsignaled_progress = decided_unsignaled_now - baseline["decided_unsignaled_at_baseline"]
+    target_unsignaled_by_now = math.floor(signaled_progress * baseline["target_ratio"])
+    return target_unsignaled_by_now > unsignaled_progress
+
+
+def _round_robin_by_note_type(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Proportionally interleaves `rows` by `note_type` — measured need:
+    of the no-signal pool, `listening` outnumbers `word`/`expression`
+    roughly 4-to-1, but `queue`'s stable sort leaves them in whatever
+    order the underlying SQL happened to return (effectively source-
+    insertion order), which clusters almost all `word`/`expression`
+    before any `listening` — so taking element 0 of the raw no-signal
+    list repeatedly exhausted ~350 `word`/`expression` candidates before
+    a single `listening` one appeared. Picks, at each step, whichever
+    type's consumed-so-far fraction is lowest — a standard proportional-
+    apportionment technique — so types stay mixed throughout rather than
+    one exhausting before another starts. Recomputed fresh each call,
+    always read from position 0 by the caller, so (unlike a stride/
+    threshold scheme) there is nothing here to treadmill: it only decides
+    *which* currently-undecided candidate is "first," never counts steps
+    toward a future one."""
+    buckets: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        buckets.setdefault(_note_type(row), []).append(row)
+    if len(buckets) <= 1:
+        return rows
+
+    indices = {note_type: 0 for note_type in buckets}
+    result: list[sqlite3.Row] = []
+    for _ in range(len(rows)):
+        note_type = min(
+            (nt for nt, bucket in buckets.items() if indices[nt] < len(bucket)),
+            key=lambda nt: (indices[nt] + 1) / len(buckets[nt]),
+        )
+        result.append(buckets[note_type][indices[note_type]])
+        indices[note_type] += 1
+    return result
 
 
 def pending_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """The queue minus whatever already has a decision — reopening review
-    resumes here (task 6.4). When a `listening` candidate is overdue
-    (`listening_candidate_is_due`), the next undecided one is surfaced as
+    resumes here (task 6.4). When an unsignaled candidate is overdue
+    (`unsignaled_candidate_is_due`), the next undecided one is surfaced as
     the very first entry — forcing it to be the actual next card shown,
     not merely present somewhere further down an array the operator may
     never reach before the next recompute (see that function's
@@ -150,13 +204,13 @@ def pending_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     on."""
     decided = decided_signature_keys(conn)
     undecided = [row for row in queue(conn) if row["signature_key"] not in decided]
-    listening = [row for row in undecided if _note_type(row) == "listening"]
-    rest = [row for row in undecided if _note_type(row) != "listening"]
-    if not listening or not rest:
+    unsignaled = _round_robin_by_note_type([row for row in undecided if not _has_order_signal(row)])
+    signaled = [row for row in undecided if _has_order_signal(row)]
+    if not unsignaled or not signaled:
         return undecided
-    if listening_candidate_is_due(conn):
-        return [listening[0], *rest, *listening[1:]]
-    return [*rest, *listening]
+    if unsignaled_candidate_is_due(conn):
+        return [unsignaled[0], *signaled, *unsignaled[1:]]
+    return [*signaled, *unsignaled]
 
 
 def progress(conn: sqlite3.Connection) -> tuple[int, int]:
