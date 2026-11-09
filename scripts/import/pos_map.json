@@ -1,0 +1,14 @@
+{
+  "_comment": "Source part-of-speech vocabularies -> the six canonical Norwegian values (task 1.1). Reviewable data, not inline constants, same convention as denylist.json. A source value absent here (determiner, set phrase, interjection, pronoun, prefix) has deliberately no canonical equivalent (design D3) and resolves to no part of speech rather than the nearest fit.",
+  "map": {
+    "noun": "substantiv",
+    "proper noun": "substantiv",
+    "substantiv": "substantiv",
+    "adjective": "adjektiv",
+    "verb": "verb",
+    "adverb": "adverb",
+    "preposition": "preposisjon",
+    "conjunction": "konjunksjon",
+    "subjunction": "konjunksjon"
+  }
+}

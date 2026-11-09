@@ -23,7 +23,7 @@ when `builder` cannot assign a deck.
 
 **Lemma.** 0 of 9,009 candidates populate it.
 
-Inference measured over the same 7,273:
+Inference measured over the same 7,273 (pre-implementation estimate):
 
 ```
 resolved     5,538   76%
@@ -31,6 +31,39 @@ unresolved   1,735   24%
 conflicts       38   substantiv/verb 21 · adjektiv/substantiv 11
                      adjektiv/adverb 6
 ```
+
+**Real post-run measurement (task 6.4, re-run against the full bundle,
+stock/known-set judge unavailable in this checkout so these are over all
+7,273 `type=word` candidates, not just verdict=import — judge doesn't
+filter the `candidate` table, only tags it, so the count is the same
+either way):**
+
+```
+substantiv    3,485   verb         1,159   adjektiv      694
+adverb          115   preposisjon     67   konjunksjon    13
+unresolved    1,740   (76.1% resolved)
+lemma         7,273   (100% of type=word candidates)
+conflicts        34   substantiv/verb 28 · adjektiv/adverb 5
+                      adjektiv/substantiv 7
+off-vocabulary    0
+```
+
+Close to the pre-implementation estimate but not identical — same
+"measured, not assumed" convention this change's other figures already
+follow (see normalize.py's module docstring). The `substantiv`/`verb`
+conflict count (28, not 21) is the only figure with a non-trivial delta;
+the other two conflict categories are within a few of the estimate.
+
+This reflects a bug the task 6.3 spot-check caught and fixed before
+landing (see task 2.1's code comment in `normalize.py`): the adjective
+inflection-shape signal initially included `positiv`/`nøytrum`/
+`bestemt_flertall`, which is the exact shape `parse_ntnu_inflection`'s
+blank-article branch also produces for an articleless *noun* ("mat",
+"smør", "klær") — that branch deliberately leaves `pos` unresolved for
+exactly this reason, and the inflection-shape signal was silently
+overriding that caution. Fixed by narrowing the adjective shape to the
+keys with no such ambiguity (`flertall`/`komparativ`/`superlativ`/
+`superlativ_def`); real nouns no longer resolve to `adjektiv`.
 
 ## Goals / Non-Goals
 
@@ -161,3 +194,23 @@ The two changes compound; neither depends on the other.
   type signal masquerading as a part-of-speech value, and type routing is
   task 3.8's job, not this change's — but the two interact and nobody has
   looked.
+- **A lexeme signature can merge two homographs' inflections across
+  sources**, found during the task 6.3 spot-check. `merge.py`'s field
+  priority picks `inflections` independently of `text` — for `"tre"`
+  (noun: tree/three), NTNU and `freq6k` give it no inflections, so
+  `core6k`'s inflections win by default; but `core6k`'s only entry under
+  that signature is the *verb* homograph `"å tre"` ("to thread" a
+  needle), because `lexeme.py`'s signature strips the infinitive marker
+  before keying (pre-existing, `bulk-import-anki-csv` design D3, not
+  something this change touches). The candidate ends up with the
+  noun's `text` ("tre") but the verb's `inflections`, and signal 1 then
+  resolves `pos` to `verb` — wrong, and a conflict is *not* recorded,
+  because signal 1 outranks signal 3's (correct) `substantiv` rather than
+  merely disagreeing with it as a peer.  Measured: 496 of 7,273 word
+  candidates have a different winning source for `text` than for
+  `inflections` — an upper bound on exposure, not all of them are
+  cross-sense; this specific case was found by inspection, not counted
+  exhaustively. Fixing the signature granularity is out of scope here
+  (it's `key.py`/`lexeme.py`'s job, not `normalize.py`/`merge.py`'s); worth
+  a follow-up change if the review spot-check (task 6.3, in production
+  with the real review queue) turns up more than a handful.

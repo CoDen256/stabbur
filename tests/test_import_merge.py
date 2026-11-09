@@ -130,6 +130,88 @@ def test_ntnu_human_audio_outranks_a1_human_audio():
 
 
 # ---------------------------------------------------------------------------
+# Part-of-speech inference + lemma (import-pos-lemma-inference, tasks
+# 2.1-2.7, 3.1-3.2, 4.1-4.4, 5.1-5.6)
+# ---------------------------------------------------------------------------
+
+
+def test_inflection_shape_outranks_source_label_and_records_conflict():
+    """Task 5.2: a candidate whose inflection shape says noun and whose
+    source label says adjective resolves to substantiv and records the
+    disagreement as a conflict (design D4)."""
+    rows = [_row("ntnu", inflections={"article": "en", "sg_indef": "katt", "sg_def": "katten"})]
+    rows.append(_row("freq6k", pos="adjektiv"))
+    fields, sources, conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["pos"] == "substantiv"
+    assert conflicts["pos"] == [{"source": "signal:source_word_class", "value": "adjektiv"}]
+
+
+def test_text_prefix_signal_resolves_pos_when_no_inflections():
+    rows = [_row("csv_placeholder", text="å gå")]
+    rows[0]["source"] = "herpaberget"
+    fields, _sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["pos"] == "verb"
+
+
+def test_source_word_class_signal_resolves_pos_in_isolation():
+    rows = [_row("freq6k", text="katt", pos="substantiv")]
+    fields, _sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["pos"] == "substantiv"
+
+
+def test_translation_prefix_is_the_only_resolving_signal():
+    rows = [_row("freq6k", text="katt", translations=[{"lang": "en", "text": "a cat"}])]
+    fields, sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["pos"] == "substantiv"
+    assert sources["pos"] == "signal:translation_prefix"
+
+
+def test_expression_notes_get_neither_pos_nor_lemma():
+    rows = [
+        _row(
+            "csv_placeholder",
+            note_type="expression",
+            text="bli kvitt",
+            pos="verb",
+            translations=[{"lang": "en", "text": "to get rid of"}],
+        )
+    ]
+    rows[0]["source"] = "herpaberget"
+    fields, sources, conflicts, _order_key = import_merge.merge_group(rows)
+    assert "pos" not in fields
+    assert "pos" not in sources
+    assert "pos" not in conflicts
+    assert "lemma" not in fields
+
+
+def test_listening_notes_get_neither_pos_nor_lemma():
+    rows = [_row("a1_31k", note_type="listening", text="noen ganger")]
+    fields, _sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert "pos" not in fields
+    assert "lemma" not in fields
+
+
+def test_unresolvable_word_candidate_leaves_pos_unset_not_defaulted():
+    rows = [_row("ntnu", text="møte")]
+    fields, sources, conflicts, _order_key = import_merge.merge_group(rows)
+    assert "pos" not in fields
+    assert "pos" not in sources
+    assert "pos" not in conflicts
+
+
+def test_lemma_strips_leading_article_for_word_notes():
+    rows = [_row("ntnu", text="en katt")]
+    fields, _sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["lemma"] == "katt"
+
+
+def test_lemma_strips_leading_infinitive_marker_for_word_notes():
+    rows = [_row("ntnu", text="å spise")]
+    fields, _sources, _conflicts, _order_key = import_merge.merge_group(rows)
+    assert fields["lemma"] == "spise"
+
+
+# ---------------------------------------------------------------------------
 # core6k rank as its own ordering tier (task 1.3, design D6)
 # ---------------------------------------------------------------------------
 
@@ -274,6 +356,53 @@ def test_human_audio_coverage_drops_to_roughly_2100_items(merged_conn):
     ).fetchall()
     with_audio = sum(1 for row in rows if json.loads(row["fields_json"]).get("audio_ref"))
     assert 2000 <= with_audio <= 2200
+
+
+def test_pos_lemma_corpus_distribution_matches_measured(merged_conn):
+    """Task 5.7: real post-run distribution (recorded in design.md per task
+    6.4), measured directly against this bundle rather than assumed from
+    the original design estimate — same convention this change's other
+    stages already follow for measured-not-assumed figures."""
+    import json
+    from collections import Counter
+
+    rows = merged_conn.execute(
+        "SELECT fields_json, conflicts_json FROM candidate WHERE verdict = 'import'"
+    ).fetchall()
+
+    pos_counts: Counter = Counter()
+    word_count = 0
+    unresolved = 0
+    lemma_count = 0
+    conflict_count = 0
+    off_vocabulary = set()
+    for row in rows:
+        fields = json.loads(row["fields_json"])
+        if fields.get("note_type") != "word":
+            assert "pos" not in fields
+            assert "lemma" not in fields
+            continue
+        word_count += 1
+        pos = fields.get("pos")
+        if pos is None:
+            unresolved += 1
+        else:
+            pos_counts[pos] += 1
+            if pos not in import_normalize.CANONICAL_POS:
+                off_vocabulary.add(pos)
+        if fields.get("lemma"):
+            lemma_count += 1
+        if "pos" in json.loads(row["conflicts_json"]):
+            conflict_count += 1
+
+    assert word_count == 7273
+    assert lemma_count == word_count  # every word note gets a lemma (task 4.1)
+    assert not off_vocabulary
+    assert 3400 <= pos_counts["substantiv"] <= 3550
+    assert 1100 <= pos_counts["verb"] <= 1200
+    assert 650 <= pos_counts["adjektiv"] <= 750
+    assert 1600 <= unresolved <= 1800
+    assert 20 <= conflict_count <= 60  # design.md's ~38, signal disagreement is rare by construction
 
 
 def test_merge_is_idempotent_and_does_not_touch_decision(merged_conn):

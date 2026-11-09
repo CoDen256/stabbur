@@ -141,6 +141,20 @@ def test_payload_carries_merged_fields():
     assert payload["audio_blob"] == "sha256hash"
 
 
+def test_payload_carries_lemma():
+    """Task 4.4: push.py already sends `pos`; the payload now also sends
+    `lemma`."""
+    fields = {"text": "katt", "note_type": "word", "lemma": "katt"}
+    payload = import_push.build_note_payload(fields, {"text": "ntnu"}, None, "n1", run_id=1)
+    assert payload["lemma"] == "katt"
+
+
+def test_payload_lemma_is_none_when_absent():
+    fields = {"text": "bli kvitt", "note_type": "expression"}
+    payload = import_push.build_note_payload(fields, {"text": "herpaberget"}, None, "n1", run_id=1)
+    assert payload["lemma"] is None
+
+
 # ---------------------------------------------------------------------------
 # push_one / run — idempotency (task 7.3, D12) and the queue (only accepted)
 # ---------------------------------------------------------------------------

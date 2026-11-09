@@ -214,6 +214,156 @@ def test_a1_notes_is_ipa(notes, expected):
 
 
 # ---------------------------------------------------------------------------
+# Part-of-speech mapping (import-pos-lemma-inference, task 1.1-1.4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("noun", "substantiv"),
+        ("Noun", "substantiv"),
+        ("proper noun", "substantiv"),
+        ("adjective", "adjektiv"),
+        ("verb", "verb"),
+        ("adverb", "adverb"),
+        ("preposition", "preposisjon"),
+        ("conjunction", "konjunksjon"),
+        ("subjunction", "konjunksjon"),
+        ("substantiv", "substantiv"),
+        ("determiner", None),
+        ("set phrase", None),
+        ("interjection", None),
+        ("pronoun", None),
+        ("prefix", None),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_map_source_pos(value, expected):
+    assert import_normalize.map_source_pos(value) == expected
+
+
+def test_pos_map_output_range_is_subset_of_canonical_values():
+    assert set(import_normalize.POS_MAP.values()) <= import_normalize.CANONICAL_POS
+
+
+# ---------------------------------------------------------------------------
+# Part-of-speech inference signals (task 2.1-2.4)
+# ---------------------------------------------------------------------------
+
+
+def test_pos_from_inflection_shape_noun():
+    assert import_normalize.pos_from_inflection_shape({"article": "en", "sg_indef": "katt", "pl_def": "kattene"}) == (
+        "substantiv"
+    )
+
+
+def test_pos_from_inflection_shape_adjective():
+    assert import_normalize.pos_from_inflection_shape({"positiv": "gammel", "komparativ": "eldre"}) == "adjektiv"
+
+
+def test_pos_from_inflection_shape_does_not_treat_ntnu_blank_article_shape_as_adjective():
+    """NTNU's blank-article branch produces this exact shape for an
+    articleless *noun* (e.g. "mat", "smør") as well as for a genuine
+    adjective, and deliberately leaves `pos` unresolved for it — `positiv`/
+    `nøytrum`/`bestemt_flertall` alone must not be treated as adjective
+    evidence here, or a real noun gets permanently misfiled (found via the
+    task 6.3 spot-check)."""
+    assert import_normalize.pos_from_inflection_shape({"positiv": "mat"}) is None
+    assert import_normalize.pos_from_inflection_shape({"positiv": "dyr", "nøytrum": "dyrt", "bestemt_flertall": "dyre"}) is None
+
+
+def test_pos_from_inflection_shape_verb():
+    assert import_normalize.pos_from_inflection_shape({"infinitiv": "gå", "presens": "går"}) == "verb"
+
+
+def test_pos_from_inflection_shape_adverb():
+    assert import_normalize.pos_from_inflection_shape({"form": "fort"}) == "adverb"
+
+
+def test_pos_from_inflection_shape_empty_resolves_to_none():
+    assert import_normalize.pos_from_inflection_shape({}) is None
+
+
+def test_pos_from_inflection_shape_malformed_only_resolves_to_none():
+    assert import_normalize.pos_from_inflection_shape({"_malformed": "x"}) is None
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("å gå", "verb"),
+        ("Å SPISE", "verb"),
+        ("en katt", "substantiv"),
+        ("et hus", "substantiv"),
+        ("ei bok", "substantiv"),
+        ("EN Katt", "substantiv"),
+        ("katt", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_pos_from_text_prefix(text, expected):
+    assert import_normalize.pos_from_text_prefix(text) == expected
+
+
+@pytest.mark.parametrize(
+    "translation_text,expected",
+    [
+        ("to run", "verb"),
+        ("To Run", "verb"),
+        ("a cat", "substantiv"),
+        ("an apple", "substantiv"),
+        ("A Cat", "substantiv"),
+        ("quickly", None),
+        ("", None),
+    ],
+)
+def test_pos_from_translation_prefix(translation_text, expected):
+    translations = [{"lang": "en", "text": translation_text}] if translation_text else []
+    assert import_normalize.pos_from_translation_prefix(translations) == expected
+
+
+def test_pos_from_translation_prefix_no_translations():
+    assert import_normalize.pos_from_translation_prefix([]) is None
+
+
+def test_freq6k_pos_is_mapped_to_canonical_not_passed_through():
+    result = import_normalize._normalize_freq6k({"Norwegian word": "katt", "Word class": "noun"})
+    assert result["pos"] == "substantiv"
+
+
+def test_freq6k_unmappable_pos_resolves_to_none():
+    result = import_normalize._normalize_freq6k({"Norwegian word": "den", "Word class": "determiner"})
+    assert result["pos"] is None
+
+
+# ---------------------------------------------------------------------------
+# Lemma derivation (task 4.1-4.2, design D5) — parity with ui/ui.js's
+# deriveLemmaGuess, the function actually wired to the editor's "From
+# text" action.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("å spise", "spise"),
+        ("en katt", "katt"),
+        ("et hus", "hus"),
+        ("ei bok", "bok"),
+        ("gi opp", "gi"),
+        ("katt", "katt"),
+        ("", ""),
+        ("å gi opp", "gi"),
+    ],
+)
+def test_derive_lemma(text, expected):
+    assert import_normalize.derive_lemma(text) == expected
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline against the real archives
 # ---------------------------------------------------------------------------
 
@@ -267,6 +417,11 @@ def test_normalize_a1_ipa_transcription_count_matches_measured(ingested_conn):
 
 
 def test_normalize_freq6k_pos_distribution_matches_measured(ingested_conn):
+    """Task 1.2: freq6k's raw English `Word class` is mapped to its
+    canonical Norwegian equivalent at normalize time (not passed through
+    unchanged). `substantiv` is 2,165 (not design.md's `noun`-only 2,163)
+    because `proper noun` (2) also maps to `substantiv` — measured, not
+    assumed, same convention this module already follows elsewhere."""
     run_id = import_store.start_run(ingested_conn, "normalize")
     import_normalize.run(ingested_conn, run_id)
 
@@ -275,9 +430,10 @@ def test_normalize_freq6k_pos_distribution_matches_measured(ingested_conn):
             "SELECT pos, COUNT(*) FROM normalized WHERE source = 'freq6k' GROUP BY pos ORDER BY COUNT(*) DESC"
         ).fetchall()
     )
-    assert counts["noun"] == 2163
+    assert counts["substantiv"] == 2165
     assert counts["verb"] == 687
-    assert counts["adjective"] == 662
+    assert counts["adjektiv"] == 662
+    assert set(counts) - {None} <= import_normalize.CANONICAL_POS
 
 
 def test_normalize_is_idempotent_on_rerun(ingested_conn):

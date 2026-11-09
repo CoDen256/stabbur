@@ -27,9 +27,139 @@ import json
 import re
 import sqlite3
 from html import unescape
+from pathlib import Path
 
 IPA_CHARS = re.compile(r"[ɑɒæøŋɲʃʒʉʈɖɽɾɹχθðʔˈˌːˑ]")
 SOUND_REF_RE = re.compile(r"\[sound:([^\]]+)\]")
+
+# ---------------------------------------------------------------------------
+# Part-of-speech mapping + inference signals (import-pos-lemma-inference,
+# tasks 1-4). The canonical vocabulary is fixed by ui/index.html's pos
+# control and by tun/docs/03-data-model.md's deck table (C20-C25).
+# ---------------------------------------------------------------------------
+
+CANONICAL_POS = frozenset({"substantiv", "adjektiv", "verb", "adverb", "preposisjon", "konjunksjon"})
+
+_POS_MAP_PATH = Path(__file__).resolve().parent / "pos_map.json"
+
+
+def _load_pos_map() -> dict[str, str]:
+    """Task 1.1/1.4: a reviewable data file, not inline constants (same
+    convention as denylist.json). Asserted here, at load time, that its
+    output range never leaks an off-vocabulary value (task 1.4)."""
+    data = json.loads(_POS_MAP_PATH.read_text(encoding="utf-8"))
+    mapping: dict[str, str] = data["map"]
+    off_vocabulary = set(mapping.values()) - CANONICAL_POS
+    if off_vocabulary:
+        raise ValueError(f"pos_map.json maps to off-vocabulary value(s): {sorted(off_vocabulary)}")
+    return mapping
+
+
+POS_MAP = _load_pos_map()
+
+
+def map_source_pos(value: str | None) -> str | None:
+    """Task 1.2/1.3: a source value with no canonical equivalent
+    (`determiner`, `set phrase`, `interjection`, `pronoun`, `prefix`) maps
+    to nothing, never to a nearest fit (design D3)."""
+    if not value:
+        return None
+    return POS_MAP.get(value.strip().lower())
+
+
+# Signal 1 (design D1, highest precedence): the inflection shape IS the
+# part of speech. Shapes are disjoint per tun/docs/03-data-model.md,
+# extended here with the variant keys the NTNU/core6k parsers actually
+# emit (`superlativ_def`, `sg_def_en`/`sg_def_ei`) — same evidentiary
+# family as their canonical counterpart, just a label the data model doc
+# doesn't spell out (task 2.1).
+#
+# `positiv`/`nøytrum`/`bestemt_flertall` are deliberately NOT adjective
+# evidence, even though they're the exact keys `parse_ntnu_inflection`'s
+# blank-article branch produces for a genuine adjective: that branch is
+# the same one NTNU's own parser uses for an articleless *noun* (e.g.
+# "mat", "smør", "klær" — uncountable/plural-only nouns with no
+# indefinite-article field to read), and deliberately resolves `pos` to
+# `None` there (see that function's docstring) rather than guess between
+# the two. Treating `positiv` alone as adjective evidence here would
+# silently undo that caution and misfile real nouns as adjectives — a
+# permanent wrong-deck mistake (design D3's exact concern) — found by the
+# task 6.3 spot-check against real data. `komparativ`/`superlativ`/
+# `superlativ_def`/`flertall` have no such ambiguity: NTNU's noun/verb
+# branches never emit them, so their presence is still definitional.
+_NOUN_SHAPE_KEYS = frozenset({"article", "sg_indef", "sg_def", "sg_def_en", "sg_def_ei", "pl_indef", "pl_def"})
+_ADJ_SHAPE_KEYS = frozenset({"flertall", "komparativ", "superlativ", "superlativ_def"})
+_VERB_SHAPE_KEYS = frozenset({"infinitiv", "presens", "preteritum", "perfektum"})
+_ADV_SHAPE_KEYS = frozenset({"form"})
+
+
+def pos_from_inflection_shape(inflections: dict) -> str | None:
+    keys = set(inflections.keys())
+    if keys & _NOUN_SHAPE_KEYS:
+        return "substantiv"
+    if keys & _ADJ_SHAPE_KEYS:
+        return "adjektiv"
+    if keys & _VERB_SHAPE_KEYS:
+        return "verb"
+    if keys & _ADV_SHAPE_KEYS:
+        return "adverb"
+    return None
+
+
+# Signal 2: the headword's own text prefix.
+_TEXT_VERB_PREFIX_RE = re.compile(r"^å\s+", re.IGNORECASE)
+_TEXT_NOUN_PREFIX_RE = re.compile(r"^(en|et|ei)\s+", re.IGNORECASE)
+
+
+def pos_from_text_prefix(text: str | None) -> str | None:
+    if not text:
+        return None
+    if _TEXT_VERB_PREFIX_RE.match(text):
+        return "verb"
+    if _TEXT_NOUN_PREFIX_RE.match(text):
+        return "substantiv"
+    return None
+
+
+# Signal 4 (weakest, design D2): English gloss article usage.
+_TRANSLATION_VERB_PREFIX_RE = re.compile(r"^to\s+", re.IGNORECASE)
+_TRANSLATION_NOUN_PREFIX_RE = re.compile(r"^an?\s+", re.IGNORECASE)
+
+
+def pos_from_translation_prefix(translations: list[dict]) -> str | None:
+    for translation in translations:
+        text = (translation.get("text") or "").strip()
+        if not text:
+            continue
+        if _TRANSLATION_VERB_PREFIX_RE.match(text):
+            return "verb"
+        if _TRANSLATION_NOUN_PREFIX_RE.match(text):
+            return "substantiv"
+    return None
+
+
+# Design D5: identical to the note editor's lemma guess (`deriveLemmaGuess`
+# in ui/ui.js — the function actually wired to the "From text" action
+# today; the `lemma-first-suggestions` change that introduced the simpler
+# `deriveLemmaFromText` was later generalised in the editor without a
+# matching design update here). Mirrored token-for-token so the import and
+# the editor can never disagree on the same note's lemma.
+_LEMMA_PREFIX_STOPWORDS = frozenset({"en", "ei", "et", "å"})
+_LEMMA_SUFFIX_STOPWORDS = frozenset(
+    {"til", "ut", "inn", "opp", "ned", "av", "på", "i", "om", "for", "fra", "med", "etter", "over", "under", "sammen"}
+)
+
+
+def derive_lemma(text: str) -> str:
+    tokens = (text or "").strip().split()
+    if len(tokens) <= 1:
+        return tokens[0] if tokens else ""
+    start, end = 0, len(tokens) - 1
+    while start < end and tokens[start].lower() in _LEMMA_PREFIX_STOPWORDS:
+        start += 1
+    while end > start and tokens[end].lower() in _LEMMA_SUFFIX_STOPWORDS:
+        end -= 1
+    return " ".join(tokens[start : end + 1])
 
 # Non-breaking and zero-width characters observed (U+00A0) or plausible in
 # future sources (design D8) — a character class, not a single-codepoint
@@ -303,7 +433,7 @@ def _normalize_core6k(fields: dict) -> dict:
 def _normalize_freq6k(fields: dict) -> dict:
     text = fields.get("Norwegian word", "").strip()
     translation = fields.get("English translation", "").strip()
-    pos = fields.get("Word class", "").strip().lower() or None
+    pos = map_source_pos(fields.get("Word class", "").strip() or None)
     forms = parse_freq6k_paradigm(fields.get("Dictionary entry", ""))
     try:
         frequency_index = int(fields.get("Frequency index", "").strip())

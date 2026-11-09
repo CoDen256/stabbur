@@ -137,6 +137,7 @@ def build_note_payload(fields: dict, sources: dict, audio_blob: str | None, sour
         "translations": fields.get("translations", []),
         "transcription": fields.get("transcription"),
         "pos": fields.get("pos"),
+        "lemma": fields.get("lemma"),
         "inflections": fields.get("inflections", {}),
         "context_text": fields.get("context_text"),
         "audio_blob": audio_blob,

@@ -31,6 +31,8 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import normalize
+
 # Design D8 — fixed, operator-set. The CSV is last (not first): it's an
 # unreviewed third-party wordlist, not curated operator data, and gets no
 # exemption from the known-set filter or merge priority.
@@ -72,6 +74,73 @@ def _cefr_tag(tags: list[str]) -> str | None:
         if tag.startswith(_CEFR_TAG_PREFIX):
             return tag
     return None
+
+
+# Design D2: ascending fallibility, signal 1 cannot be wrong, signal 4 is
+# weakest. `source_word_class` is the already-merged `pos` field above —
+# the cross-source priority winner among each row's own (mapped-canonical)
+# label — so this list is the single place signal 3 and the generic
+# cross-source merge meet.
+_POS_SIGNAL_NAMES = ("inflection_shape", "text_prefix", "source_word_class", "translation_prefix")
+
+
+def _pos_signal_values(fields: dict) -> tuple[tuple[str, str | None], ...]:
+    return (
+        ("inflection_shape", normalize.pos_from_inflection_shape(fields.get("inflections", {}))),
+        ("text_prefix", normalize.pos_from_text_prefix(fields.get("text"))),
+        ("source_word_class", fields.get("pos")),
+        ("translation_prefix", normalize.pos_from_translation_prefix(fields.get("translations", []))),
+    )
+
+
+def _resolve_pos_and_lemma(fields: dict, sources: dict, conflicts: dict) -> None:
+    """Tasks 2.1-2.7, 3.1-3.2, 4.1-4.3: only `word` notes get a part of
+    speech or a lemma (task 2.6/4.3) — `expression`/`listening` deck by
+    type, not by part of speech, and have no single lemma to derive.
+
+    Where two signals disagree, the higher-precedence one wins *and* the
+    disagreement is recorded as a conflict (design D4), reusing this same
+    `conflicts` dict shape the cross-source field merge above already uses
+    for `pos` — a losing signal is indistinguishable in shape from a
+    losing source, it's just tagged `signal:<name>` instead of a real
+    source name. The pre-existing cross-source entries for `pos` (raw
+    disagreement between two sources' own mapped labels, signal 3's own
+    input) are superseded here, not kept alongside: once the four signals
+    are compared against each other, that raw label disagreement is
+    exactly signal 3 vs. the others, already covered below."""
+    if fields.get("note_type") != "word":
+        fields.pop("pos", None)
+        sources.pop("pos", None)
+        conflicts.pop("pos", None)
+        return
+
+    signal_values = _pos_signal_values(fields)
+    winning_signal, winning_pos = next(
+        ((name, value) for name, value in signal_values if value is not None), (None, None)
+    )
+
+    if winning_pos is None:
+        # Task 2.7: unresolved stays unresolved, never defaulted.
+        fields.pop("pos", None)
+        sources.pop("pos", None)
+        conflicts.pop("pos", None)
+    else:
+        fields["pos"] = winning_pos
+        if winning_signal != "source_word_class":
+            sources["pos"] = f"signal:{winning_signal}"
+        pos_conflicts = [
+            {"source": f"signal:{name}", "value": value}
+            for name, value in signal_values
+            if value is not None and name != winning_signal and value != winning_pos
+        ]
+        if pos_conflicts:
+            conflicts["pos"] = pos_conflicts
+        elif "pos" in conflicts:
+            del conflicts["pos"]
+
+    lemma = normalize.derive_lemma(fields.get("text", ""))
+    if lemma:
+        fields["lemma"] = lemma
 
 
 def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
@@ -132,6 +201,8 @@ def merge_group(rows: list[dict]) -> tuple[dict, dict, dict, dict]:
         sources["audio_ref"] = audio_winner_source
         if audio_losers:
             conflicts["audio_ref"] = audio_losers
+
+    _resolve_pos_and_lemma(fields, sources, conflicts)
 
     frequency_index = None
     core6k_rank = None
