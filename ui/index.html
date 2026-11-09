@@ -484,7 +484,8 @@
           <button type="button" class="btn-ghost" id="triageSkipBtn">Skip <kbd>S</kbd></button>
           <button type="button" class="btn-ghost" id="triagePreviousBtn" title="Undo the last verdict and go back one note">← Previous <kbd>T</kbd></button>
           <button type="button" class="btn-ghost" id="triagePrefillBtnBottom">⟳ Prefill <kbd>L</kbd></button>
-          <span class="inline-note" style="margin:0 0 0 6px;">edits are kept on send-to-back</span>
+          <button type="button" class="btn-ghost" id="triageSaveBtn" title="Save this card's edits without accepting, skipping, or sending it back">Save <kbd>M</kbd></button>
+          <span class="inline-note" style="margin:0 0 0 6px;">Save persists edits any time; navigation also saves them when the autosave setting is on</span>
           <span class="spacer"></span>
           <button type="button" class="btn-primary" id="triageAcceptBtn">Mark ready &amp; next <kbd>R</kbd></button>
         </div>
@@ -705,6 +706,16 @@
             <div class="ctl seg" id="settingsPrefillTimingSeg">
               <button type="button" data-value="on_open">On open</button>
               <button type="button" data-value="on_demand">On the fill control</button>
+            </div>
+          </div>
+          <div class="sitem">
+            <div class="txt">
+              <b>Saving on Send to back / Skip / Go to previous</b>
+              <p>Autosave persists the card you're leaving before moving on, for all three. Manual-only never does — only the explicit Save action (key <span class="mono">m</span>) persists edits.</p>
+            </div>
+            <div class="ctl seg" id="settingsTriageNavigateSaveSeg">
+              <button type="button" data-value="autosave">Autosave</button>
+              <button type="button" data-value="manual">Manual only</button>
             </div>
           </div>
         </div>

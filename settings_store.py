@@ -16,11 +16,16 @@ TRANSLATION_MERGE_MODES = ("append", "separate")
 # note-triage design D6: "on_open" prefills a triage note's empty fields the
 # moment it's presented; "on_demand" waits for the operator's fill control.
 PREFILL_TIMINGS = ("on_open", "on_demand")
+# triage-editor-ux-fixes design D3: "autosave" extends today's Send-to-back
+# behavior to Skip and Go to previous too; "manual" means none of the three
+# save — only the explicit triage Save action does.
+TRIAGE_NAVIGATE_SAVE_MODES = ("autosave", "manual")
 
 DEFAULT_TRANSLATION_MERGE_MODE = "append"
 DEFAULT_OVERRIDE_PREFILL = True
 DEFAULT_TARGET_LANGS = ("en", "de")
 DEFAULT_PREFILL_TIMING = "on_open"
+DEFAULT_TRIAGE_NAVIGATE_SAVE = "autosave"
 
 
 def _row(db) -> Settings | None:
@@ -36,6 +41,7 @@ def read_scalars(db) -> dict:
         "override_prefill": DEFAULT_OVERRIDE_PREFILL if row is None or row.override_prefill is None else row.override_prefill,
         "default_target_langs": (row.default_target_langs if row else None) or list(DEFAULT_TARGET_LANGS),
         "prefill_timing": (row.prefill_timing if row else None) or DEFAULT_PREFILL_TIMING,
+        "triage_navigate_save": (row.triage_navigate_save if row else None) or DEFAULT_TRIAGE_NAVIGATE_SAVE,
     }
 
 
@@ -90,6 +96,8 @@ def write(db, updates: dict, kinds: tuple[str, ...]) -> None:
         row.default_target_langs = updates["default_target_langs"]
     if "prefill_timing" in updates:
         row.prefill_timing = updates["prefill_timing"]
+    if "triage_navigate_save" in updates:
+        row.triage_navigate_save = updates["triage_navigate_save"]
 
     if "providers" in updates:
         # Reassigned as a new dict (not mutated in place) so SQLAlchemy's

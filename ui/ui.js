@@ -265,11 +265,35 @@ function readTranslationRows(containerId) {
 
 // -------------------------------------------------- inflection fields UI --
 
+// Norwegian paradigm forms read naturally with their grammatical marker in
+// front (å ringe, har ringt, en ring) — useful in running text from a
+// dictionary, redundant once the value is filed under its own
+// already-labeled field (infinitiv/perfektum/sg_indef say what the marker
+// would have said). Stripped at every point a value is rendered or stored —
+// typed in by hand, filled from a provider's paradigm, or taken from a
+// similar note — not just one of them, so the field never holds the marker
+// twice in two different ways.
+const INFLECTION_FIELD_PREFIX_STOPWORDS = {
+  infinitiv: ['å'],
+  perfektum: ['har', 'er'],
+  sg_indef: ['en', 'et', 'ei'],
+  sg_def: ['en', 'et', 'ei'],
+};
+
+function stripInflectionPrefix(field, value) {
+  const stopwords = INFLECTION_FIELD_PREFIX_STOPWORDS[field];
+  if (!stopwords || typeof value !== 'string') return value;
+  const tokens = value.trim().split(/\s+/);
+  if (tokens.length > 1 && stopwords.includes(tokens[0].toLowerCase())) return tokens.slice(1).join(' ');
+  return value;
+}
+
 function inflectionFieldHtml(field, value) {
+  const stripped = stripInflectionPrefix(field, value);
   return `
     <div class="inflection-field">
       <label>${escapeHtml(field.replace(/_/g, ' '))}</label>
-      <input type="text" data-inflection-field="${field}" value="${escapeHtml(value || '')}">
+      <input type="text" data-inflection-field="${field}" value="${escapeHtml(stripped || '')}">
     </div>
   `;
 }
@@ -294,7 +318,7 @@ function renderInflectionFields(containerId, pos, values) {
 function readInflectionFields(containerId) {
   const out = {};
   document.querySelectorAll(`#${containerId} [data-inflection-field]`).forEach((input) => {
-    out[input.dataset.inflectionField] = input.value;
+    out[input.dataset.inflectionField] = stripInflectionPrefix(input.dataset.inflectionField, input.value);
   });
   return out;
 }
@@ -832,6 +856,29 @@ async function loadSimilarNotes(prefix, noteId) {
   renderSimilarNotes(prefix, noteId);
 }
 
+// A match's actual field value next to its own "Take" button — lets the
+// operator see what they'd be taking before committing, instead of a bare
+// boolean-gated button (D4). One line per available field; a field with no
+// value contributes neither a preview line nor a take button.
+function similarNoteFieldPreviewHtml(m) {
+  const lines = [];
+  if (m.translations && m.translations.length) {
+    const joined = m.translations.map((t) => `${t.lang}: ${t.text}`).join(' · ');
+    lines.push(`<div class="similar-note-field"><b>Translations</b> ${escapeHtml(joined)}</div>`);
+  }
+  if (m.context_text) {
+    lines.push(`<div class="similar-note-field"><b>Context</b> ${escapeHtml(m.context_text)}</div>`);
+  }
+  if (m.inflections && Object.keys(m.inflections).length) {
+    const joined = Object.entries(m.inflections).map(([k, v]) => `${k}: ${stripInflectionPrefix(k, v)}`).join(' · ');
+    lines.push(`<div class="similar-note-field"><b>Inflections</b> ${escapeHtml(joined)}</div>`);
+  }
+  if (m.transcription) {
+    lines.push(`<div class="similar-note-field"><b>IPA</b> ${escapeHtml(m.transcription)}</div>`);
+  }
+  return lines.join('');
+}
+
 function similarNoteRowHtml(m) {
   const reasonsHtml = m.reasons
     .map((r) => `<span class="pill${r.signal === 'spelling' ? ' pill-spelling' : ''}">${escapeHtml(r.label)}</span>`)
@@ -861,7 +908,8 @@ function similarNoteRowHtml(m) {
         <span class="pill">${originLabel(m)}</span>
       </label>
       <div class="similar-note-reasons">${reasonsHtml}</div>
-      <div class="similar-note-actions">${takeButtonsHtml}</div>
+      <div class="similar-note-fields">${similarNoteFieldPreviewHtml(m)}</div>
+      <div class="similar-note-actions" data-note-id="${m.id}">${takeButtonsHtml}</div>
       ${canAbsorb ? '' : '<div class="inline-note">ready — cannot be absorbed by a merge; its fields can’t be taken either, since taking one commits a merge</div>'}
     </div>`;
 }
@@ -897,6 +945,14 @@ function renderSimilarNotes(prefix, noteId) {
     </div>`;
 
   wrap.innerHTML = html;
+
+  // Audio preview next to "Take audio" — built as a DOM node (buildAudioPreviewButton
+  // isn't string-templatable) and inserted after the row's markup lands.
+  matches.forEach((m) => {
+    if (!m.audio_blob) return;
+    const takeAudioBtn = wrap.querySelector(`.similar-note-actions[data-note-id="${m.id}"] [data-take-field="audio_blob"]`);
+    if (takeAudioBtn) takeAudioBtn.after(buildAudioPreviewButton(`${API_BASE}/blob/${m.audio_blob}`));
+  });
 
   wrap.querySelectorAll('.similar-select-cb').forEach((cb) => {
     cb.addEventListener('change', () => onSimilarCheckboxChange(prefix, noteId, cb));
@@ -1605,6 +1661,10 @@ function defaultSuggestQuery(prefix, kind) {
   // defaults like every suggestion panel since lemma-first-suggestions:
   // `lemma` first, `text` when there's no lemma yet (task 2.2).
   if (kind === 'pos') return suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text');
+  // tts (audio) shares examples' article-stripping transform — "en bil"
+  // should query as well as "bil", not worse, for the same reason examples
+  // already strips it (D1).
+  if (kind === 'tts') return deriveExamplesQuery(suggestFieldValue(prefix, 'lemma') || suggestFieldValue(prefix, 'text'));
   return suggestFieldValue(prefix, 'text');
 }
 
@@ -2028,7 +2088,7 @@ function renderTtsCandidate(prefix) {
     `);
     if (previewSrc) r.querySelector('.candidate-spacer').after(buildAudioPreviewButton(previewSrc));
     r.querySelector('.use-btn').addEventListener('click', async (e) => {
-      if (prefix !== 'e' && prefix !== 'c') return;
+      if (prefix !== 'e' && prefix !== 'c' && prefix !== 't') return;
       if (prefix === 'e' && !currentNote) return;
       const btn = e.target;
       const originalLabel = btn.textContent;
@@ -2192,7 +2252,9 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
       // one — a provider can report a key that doesn't apply (wrong PoS
       // guess), in which case only copy is offered (design.md D3).
       const fieldFor = (key) => document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
-      const paradigmRow = (key, value) => `
+      const paradigmRow = (key, rawValue) => {
+        const value = stripInflectionPrefix(key, rawValue);
+        return `
         <div class="paradigm-row">
           <span class="paradigm-key">${escapeHtml(key.replace(/_/g, ' '))}</span>
           <span class="paradigm-row-value">
@@ -2201,6 +2263,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
           </span>
         </div>
       `;
+      };
 
       // Substantiv candidates get the same singular/plural row grouping as
       // the note form itself (inflection-rows-and-fill); any key outside
@@ -2244,7 +2307,7 @@ function buildInflectionsProviderBlock(provider, prefix, defaultQuery, initialFo
           Object.entries(paradigm).forEach(([key, value]) => {
             const field = document.querySelector(`#${prefix}_inflections_fields [data-inflection-field="${key}"]`);
             if (!field) return;
-            field.value = value;
+            field.value = stripInflectionPrefix(key, value);
             field.dispatchEvent(new Event('input', { bubbles: true }));
             filled += 1;
           });
@@ -2609,6 +2672,15 @@ async function patchSettingsScalar(updates) {
     });
   });
 
+  const navigateSaveSeg = document.getElementById('settingsTriageNavigateSaveSeg');
+  navigateSaveSeg.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      navigateSaveSeg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      patchSettingsScalar({ triage_navigate_save: btn.dataset.value });
+    });
+  });
+
   document.getElementById('settingsDefaultLangsInput').addEventListener('change', (e) => {
     const langs = e.target.value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     patchSettingsScalar({ default_target_langs: langs });
@@ -2650,6 +2722,9 @@ async function renderSettings() {
 
   document.querySelectorAll('#settingsPrefillTimingSeg button').forEach((btn) => {
     btn.setAttribute('aria-pressed', btn.dataset.value === body.prefill_timing ? 'true' : 'false');
+  });
+  document.querySelectorAll('#settingsTriageNavigateSaveSeg button').forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.value === body.triage_navigate_save ? 'true' : 'false');
   });
 }
 
@@ -2954,9 +3029,25 @@ document.getElementById('triageAcceptBtn').addEventListener('click', async () =>
   }
 });
 
-document.getElementById('triageSendBackBtn').addEventListener('click', async () => {
+document.getElementById('triageSaveBtn').addEventListener('click', async () => {
   if (!currentTriageNote) return;
   const saved = await saveTriageEdits();
+  if (saved) enrichToast('Saved');
+});
+
+// note-triage design D3: whether Send to back / Skip / Go to previous save
+// the card being left before moving on is one operator preference governing
+// all three uniformly (operator-settings `triage_navigate_save`) — not a
+// hardcoded per-action asymmetry.
+async function shouldAutosaveOnTriageNavigate() {
+  const settings = await fetchSettings();
+  return (settings.triage_navigate_save || 'autosave') !== 'manual';
+}
+
+document.getElementById('triageSendBackBtn').addEventListener('click', async () => {
+  if (!currentTriageNote) return;
+  const autosave = await shouldAutosaveOnTriageNavigate();
+  const saved = autosave ? await saveTriageEdits() : currentTriageNote;
   if (!saved) return;
   triageDeferredCount += 1;
   triageHistoryStack.push({ type: 'sendback', index: triageIndex, noteId: currentTriageNote.id });
@@ -2969,8 +3060,9 @@ document.getElementById('triageSendBackBtn').addEventListener('click', async () 
   await showTriageNote();
 });
 
-document.getElementById('triageSkipBtn').addEventListener('click', () => {
+document.getElementById('triageSkipBtn').addEventListener('click', async () => {
   if (!currentTriageNote) return;
+  if (await shouldAutosaveOnTriageNavigate()) await saveTriageEdits();
   triageHistoryStack.push({ type: 'skip', index: triageIndex });
   advanceTriageIndex();
 });
@@ -2991,6 +3083,13 @@ document.getElementById('triageDeleteBtn').addEventListener('click', async () =>
 async function goToPreviousTriageNote() {
   const entry = triageHistoryStack.pop();
   if (!entry) { enrichToast('Nothing to go back to'); return; }
+
+  // Additive to the undo-stack bookkeeping below, not a replacement for it:
+  // this only decides whether the card being left is persisted first, which
+  // is orthogonal to which history entry is being unwound.
+  if (currentTriageNote && (await shouldAutosaveOnTriageNavigate())) {
+    await saveTriageEdits();
+  }
 
   if (entry.type === 'sendback') {
     const idx = triageQueue.findIndex((n) => n.id === entry.noteId);
@@ -3055,6 +3154,7 @@ const TRIAGE_KEY_BINDINGS = {
   s: 'triageSkipBtn',
   d: 'triageDeleteBtn',
   t: 'triagePreviousBtn',
+  m: 'triageSaveBtn',
 };
 document.addEventListener('keydown', (e) => {
   if (parseHash().route !== 'triage' || !currentTriageNote) return;
@@ -3186,7 +3286,7 @@ async function prefillTriageInflections() {
   INFLECTION_SHAPES[pos].forEach((field) => {
     if (!current[field] && result.candidate.paradigm[field]) {
       const input = document.querySelector(`#t_inflections_fields [data-inflection-field="${field}"]`);
-      if (input) { input.value = result.candidate.paradigm[field]; flashPrefilled(input); any = true; }
+      if (input) { input.value = stripInflectionPrefix(field, result.candidate.paradigm[field]); flashPrefilled(input); any = true; }
     }
   });
   if (any) markTriageFieldProvenance('inflections', result.provider);

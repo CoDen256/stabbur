@@ -18,6 +18,7 @@ from routes.enrich import ENRICHABLE_KINDS
 
 ALLOWED_SETTINGS_KEYS = {
     "translation_merge_mode", "override_prefill", "default_target_langs", "providers", "prefill_timing",
+    "triage_navigate_save",
 }
 
 
@@ -54,6 +55,9 @@ def _validate_patch_body(body: dict) -> str | None:
 
     if "prefill_timing" in body and body["prefill_timing"] not in settings_store.PREFILL_TIMINGS:
         return f"prefill_timing must be one of {settings_store.PREFILL_TIMINGS}"
+
+    if "triage_navigate_save" in body and body["triage_navigate_save"] not in settings_store.TRIAGE_NAVIGATE_SAVE_MODES:
+        return f"triage_navigate_save must be one of {settings_store.TRIAGE_NAVIGATE_SAVE_MODES}"
 
     if "default_target_langs" in body:
         langs = body["default_target_langs"]

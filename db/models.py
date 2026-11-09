@@ -175,6 +175,10 @@ SETTINGS_TRANSLATION_MERGE_MODES = ("append", "separate")
 # note-triage design D6: whether prefill runs the moment a triage note is
 # presented, or only when the operator presses the fill control.
 SETTINGS_PREFILL_TIMINGS = ("on_open", "on_demand")
+# triage-editor-ux-fixes design D3: whether Send to back/Skip/Go to previous
+# save the card being left before moving on (autosave), or never do (manual —
+# only the explicit Save action persists edits).
+SETTINGS_TRIAGE_NAVIGATE_SAVE_MODES = ("autosave", "manual")
 
 
 class Settings(Base):
@@ -200,6 +204,10 @@ class Settings(Base):
             f"prefill_timing IS NULL OR prefill_timing IN {SETTINGS_PREFILL_TIMINGS!r}",
             name="ck_settings_prefill_timing",
         ),
+        CheckConstraint(
+            f"triage_navigate_save IS NULL OR triage_navigate_save IN {SETTINGS_TRIAGE_NAVIGATE_SAVE_MODES!r}",
+            name="ck_settings_triage_navigate_save",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
@@ -211,3 +219,4 @@ class Settings(Base):
     override_prefill: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     default_target_langs: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     prefill_timing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triage_navigate_save: Mapped[str | None] = mapped_column(Text, nullable=True)

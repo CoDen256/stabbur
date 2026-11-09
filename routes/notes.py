@@ -110,6 +110,33 @@ def _serialize_authoring(note: Note) -> dict:
     return data
 
 
+# triage-editor-ux-fixes follow-up: smia's paradigm forms read naturally
+# with their grammatical marker in front (å ringe, har ringt, en ring) —
+# redundant once the value is filed under its own already-labeled field.
+# Mirrors ui.js's INFLECTION_FIELD_PREFIX_STOPWORDS/stripInflectionPrefix —
+# kept in sync by hand, since the two run in different languages.
+_INFLECTION_FIELD_PREFIX_STOPWORDS = {
+    "infinitiv": ("å",),
+    "perfektum": ("har", "er"),
+    "sg_indef": ("en", "et", "ei"),
+    "sg_def": ("en", "et", "ei"),
+}
+
+
+def _strip_inflection_prefixes(inflections: dict | None) -> dict:
+    if not inflections:
+        return {}
+    out = {}
+    for key, value in inflections.items():
+        stopwords = _INFLECTION_FIELD_PREFIX_STOPWORDS.get(key)
+        if stopwords and isinstance(value, str):
+            tokens = value.strip().split()
+            if len(tokens) > 1 and tokens[0].lower() in stopwords:
+                value = " ".join(tokens[1:])
+        out[key] = value
+    return out
+
+
 def _serialize_similar_match(note: Note, signals: dict) -> dict:
     """similar-notes-merge tasks.md 4.1: a match with its reasons, status,
     origin, and which fields it has to offer — never a bare blended score
@@ -136,6 +163,15 @@ def _serialize_similar_match(note: Note, signals: dict) -> dict:
         "has_transcription": note.transcription is not None,
         "has_inflections": bool(note.inflections),
         "has_context": note.context_text is not None,
+        # triage-editor-ux-fixes D4: the actual values, not just presence —
+        # reading fields already loaded on `note` to compute the booleans
+        # above, not an extra query. The booleans stay too; existing UI
+        # logic still branches on them for which take-buttons to render.
+        "translations": note.translations or [],
+        "context_text": note.context_text,
+        "inflections": _strip_inflection_prefixes(note.inflections),
+        "transcription": note.transcription,
+        "audio_blob": note.audio_blob,
     }
 
 
@@ -547,7 +583,15 @@ def register_notes_routes(app):
                     source = absorbed_by_id.get(source_id)
                 if source is None:
                     return jsonify({"error": f"take source {source_id} is not part of this merge"}), 400
-                setattr(survivor, field, getattr(source, field))
+                value = getattr(source, field)
+                if field == "inflections":
+                    # A source note saved before the prefix-stripping fix (or
+                    # one whose inflections were never re-edited since) can
+                    # still carry the grammatical-marker prefix on its stored
+                    # values — stripped here too, so a merge never reintroduces
+                    # it onto the survivor.
+                    value = _strip_inflection_prefixes(value)
+                setattr(survivor, field, value)
 
             # Hard-deleted, never tombstoned — every absorbed note was just
             # asserted to be a draft above, and a draft has never been

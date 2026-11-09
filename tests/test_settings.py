@@ -22,6 +22,7 @@ def test_reading_before_anything_configured_returns_full_defaults(client, monkey
     assert body["override_prefill"] is True
     assert body["default_target_langs"] == ["en", "de"]
     assert body["prefill_timing"] == "on_open"
+    assert body["triage_navigate_save"] == "autosave"
     assert body["providers"]["ipa"]["order"] == ["wikipron", "nst"]
     assert body["providers"]["ipa"]["primary"] == "wikipron"
 
@@ -36,6 +37,26 @@ def test_prefill_timing_can_be_set_to_on_demand(client, monkeypatch):
 def test_prefill_timing_rejects_unknown_value(client, monkeypatch):
     _mock_catalogue(monkeypatch, {})
     resp = client.patch("/api/settings", json={"prefill_timing": "sometimes"}, headers=AUTH)
+    assert resp.status_code == 400
+
+
+def test_triage_navigate_save_can_be_set_to_manual(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"triage_navigate_save": "manual"}, headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.get_json()["triage_navigate_save"] == "manual"
+
+
+def test_triage_navigate_save_can_be_set_to_autosave(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"triage_navigate_save": "autosave"}, headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.get_json()["triage_navigate_save"] == "autosave"
+
+
+def test_triage_navigate_save_rejects_unknown_value(client, monkeypatch):
+    _mock_catalogue(monkeypatch, {})
+    resp = client.patch("/api/settings", json={"triage_navigate_save": "sometimes"}, headers=AUTH)
     assert resp.status_code == 400
 
 

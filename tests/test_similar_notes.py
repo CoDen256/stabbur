@@ -59,6 +59,59 @@ def test_morphology_signal_shared_inflected_form(client):
     assert "morphology" in _reason_signals(by_id_b[c["id"]])
 
 
+def test_similar_match_includes_actual_field_values(client):
+    a = _create(client, text="å oppleve")
+    b = _create(
+        client,
+        text="en opplevelse",
+        translations=[{"lang": "en", "text": "an experience"}],
+        context_text="en spennende opplevelse",
+        inflections={"article": "en", "sg_indef": "opplevelse", "sg_def": "opplevelsen"},
+        transcription="/ɔ.plɛ.vɛl.sə/",
+    )
+
+    matches = _similar(client, a["id"])
+    by_id = {m["id"]: m for m in matches}
+    match = by_id[b["id"]]
+    assert match["translations"] == [{"lang": "en", "text": "an experience"}]
+    assert match["context_text"] == "en spennende opplevelse"
+    assert match["inflections"] == {"article": "en", "sg_indef": "opplevelse", "sg_def": "opplevelsen"}
+    assert match["transcription"] == "/ɔ.plɛ.vɛl.sə/"
+    assert match["audio_blob"] is None
+    assert match["has_audio"] is False
+
+
+def test_similar_match_inflections_strip_grammatical_marker_prefix(client):
+    a = _create(client, text="å oppleve")
+    b = _create(
+        client,
+        text="en opplevelse",
+        inflections={"article": "en", "sg_indef": "en opplevelse", "sg_def": "opplevelsen"},
+    )
+
+    matches = _similar(client, a["id"])
+    by_id = {m["id"]: m for m in matches}
+    # sg_indef's stored "en opplevelse" is the marker-plus-form shape a
+    # dictionary reads naturally; article already carries "en" on its own
+    # field, so the prefix is redundant once sg_indef is labeled by key.
+    assert by_id[b["id"]]["inflections"]["sg_indef"] == "opplevelse"
+    assert by_id[b["id"]]["inflections"]["article"] == "en"
+
+
+def test_similar_match_without_fields_returns_empty_values(client):
+    a = _create(client, text="å oppleve")
+    b = _create(client, text="en opplevelse")
+
+    matches = _similar(client, a["id"])
+    by_id = {m["id"]: m for m in matches}
+    match = by_id[b["id"]]
+    assert match["translations"] == []
+    assert match["context_text"] is None
+    assert match["inflections"] == {}
+    assert match["transcription"] is None
+    assert match["audio_blob"] is None
+
+
 def test_semantic_signal_shared_translation(client):
     a = _create(client, text="forbindelse", translations=[{"lang": "en", "text": "a connection"}])
     b = _create(client, text="sammenheng", translations=[{"lang": "en", "text": "connection"}])
@@ -206,6 +259,28 @@ def test_taking_audio_copies_hash_without_duplicating_blob(client):
     )
     assert resp.status_code == 200
     assert resp.get_json()["audio_blob"] == "deadbeef" * 8
+
+
+def test_taking_inflections_strips_grammatical_marker_prefix(client):
+    survivor = _create(client, text="hus", status="draft")
+    absorbed = _create(
+        client,
+        text="hus2",
+        status="draft",
+        inflections={"infinitiv": "å ringe", "perfektum": "har ringt", "presens": "ringer"},
+    )
+
+    resp = client.post(
+        "/api/notes/merge",
+        json={
+            "survivor_id": survivor["id"],
+            "absorbed_ids": [absorbed["id"]],
+            "take": {"inflections": absorbed["id"]},
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["inflections"] == {"infinitiv": "ringe", "perfektum": "ringt", "presens": "ringer"}
 
 
 # --------------------------------------------------------------- 6.8 ---
