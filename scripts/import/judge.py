@@ -104,7 +104,8 @@ def is_pure_numeral(text: str | None) -> bool:
     (`en` is both the numeral "one" and the indefinite article)."""
     if not text:
         return False
-    tokens = [tok.lower() for tok in text.strip().split()]
+    stripped = text.strip()
+    tokens = [tok.lower() for tok in stripped.split()]
     if not tokens:
         return False
     if len(tokens) == 1 and tokens[0] in _AMBIGUOUS_BARE_NUMERALS:

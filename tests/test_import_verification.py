@@ -135,12 +135,17 @@ def test_dry_run_funnel_is_in_the_measured_ballpark(dry_run_conn):
     """Task 8.1: confirm the funnel against the measured (task 4b.14),
     not the design-estimate, figures — investigate material divergence
     rather than accept it. A ~22% skip rate, ~9,000 distinct signatures,
-    is this change's own measured baseline (design.md's D13 section)."""
+    was this change's own measured baseline (design.md's D13 section)
+    before `review-queue-filters` added its own skip rules (fully-known-
+    sentence, proper-noun, derived-from-proper-noun, numeral) on top of
+    D13's attestation rules — those additionally skip ~9% of signatures on
+    a fresh run with no recorded decisions, moving the real rate to
+    ~31%."""
     total = dry_run_conn.execute("SELECT COUNT(DISTINCT signature_key) FROM signature").fetchone()[0]
     skipped = dry_run_conn.execute("SELECT COUNT(DISTINCT signature_key) FROM verdict WHERE verdict='skip'").fetchone()[0]
     assert total == 9009
     skip_rate = skipped / total
-    assert 0.18 <= skip_rate <= 0.26  # measured 22.1%; design's pre-build estimate was 18.7%
+    assert 0.28 <= skip_rate <= 0.34  # measured 31.1% post-review-queue-filters; was 22.1%
 
 
 @pytest.mark.skipif(not (_HAS_SOURCES and _HAS_STOCK), reason="needs real archives + stock bundle")

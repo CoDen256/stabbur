@@ -328,7 +328,17 @@ def test_cross_source_overlap_shows_merging_not_duplication(merged_conn):
 
 def test_ordering_coverage_rises_to_roughly_74_percent_with_core6k_rank(merged_conn):
     """Task 1.3: from 2,877/7,022 (41%) to ~5,170 (74%) once core6k's rank
-    is a usable signal alongside freq6k's."""
+    is a usable signal alongside freq6k's.
+
+    `verdict = 'import'` numbers here moved again once `review-queue-
+    filters` landed its real skip rules (its own `judge` previously
+    couldn't run in this checkout, so merge saw every candidate as
+    'import' by default) — the review queue itself shrank from 7,022 to
+    6,232 on a fresh pipeline run with no recorded decisions (a live store
+    with real operator decisions measures higher, since decision
+    precedence exempts already-decided candidates from the new rules —
+    see design.md), and the ordering coverage among what remains rose too,
+    since the newly-skipped sentences were disproportionately unordered."""
     import json
 
     rows = merged_conn.execute(
@@ -342,34 +352,44 @@ def test_ordering_coverage_rises_to_roughly_74_percent_with_core6k_rank(merged_c
             json.loads(row["order_key_json"])
         )
     )
-    assert total == 7022
-    assert 0.70 <= ordered / total <= 0.78
+    assert total == 6232
+    assert 0.76 <= ordered / total <= 0.82
 
 
 def test_human_audio_coverage_drops_to_roughly_2100_items(merged_conn):
     """Task 1.6: of the 6,269 queue items design.md measured carrying any
     audio_ref before this fix, only the ~2,102 with genuine human
-    recordings should keep one afterwards."""
+    recordings should keep one afterwards.
+
+    Re-measured post-`review-queue-filters`, same reason as the ordering
+    test above: that change's fully-known-sentence rule disproportionately
+    skips `listening` candidates, which are the type most likely to carry
+    human audio, so `verdict = 'import'` coverage drops further than this
+    task's own original 2,000-2,200 estimate."""
     import json
 
     rows = merged_conn.execute(
         "SELECT fields_json FROM candidate WHERE verdict = 'import'"
     ).fetchall()
     with_audio = sum(1 for row in rows if json.loads(row["fields_json"]).get("audio_ref"))
-    assert 2000 <= with_audio <= 2200
+    assert 1450 <= with_audio <= 1600
 
 
 def test_pos_lemma_corpus_distribution_matches_measured(merged_conn):
     """Task 5.7: real post-run distribution (recorded in design.md per task
     6.4), measured directly against this bundle rather than assumed from
     the original design estimate — same convention this change's other
-    stages already follow for measured-not-assumed figures."""
+    stages already follow for measured-not-assumed figures.
+
+    Queried over every candidate, not `verdict = 'import'` only: pos/lemma
+    derivation is orthogonal to whether `judge` skips a candidate, and
+    `review-queue-filters` landing a real `judge` run in this checkout
+    (previously unavailable) would otherwise make this test's numbers
+    depend on that unrelated change's skip rules."""
     import json
     from collections import Counter
 
-    rows = merged_conn.execute(
-        "SELECT fields_json, conflicts_json FROM candidate WHERE verdict = 'import'"
-    ).fetchall()
+    rows = merged_conn.execute("SELECT fields_json, conflicts_json FROM candidate").fetchall()
 
     pos_counts: Counter = Counter()
     word_count = 0
@@ -396,7 +416,10 @@ def test_pos_lemma_corpus_distribution_matches_measured(merged_conn):
         if "pos" in json.loads(row["conflicts_json"]):
             conflict_count += 1
 
-    assert word_count == 6953  # 7,273 minus the 320 moved to `expression` by section 2b
+    # 6,951, not 6,953: review-queue-filters' core6k sentence re-routing
+    # (task 2.1) moves a further handful of `word` candidates to
+    # `listening`, with a small knock-on effect on signature grouping.
+    assert word_count == 6951
     assert lemma_count == word_count  # every word note gets a lemma (task 4.1)
     assert not off_vocabulary
     assert 3400 <= pos_counts["substantiv"] <= 3550
@@ -410,14 +433,21 @@ def test_no_canonical_pos_candidates_route_to_expression(merged_conn):
     """Task 2b: a `word` candidate that no signal resolves a part of speech
     for, and whose shape matches one of the no-deck categories (unmapped
     source category, multiword, `!`/`?` punctuation, numeral), is retyped
-    to `expression` instead of staying an undeckable `word`."""
+    to `expression` instead of staying an undeckable `word`.
+
+    Numbers shifted again once `review-queue-filters` landed its own
+    core6k sentence re-routing (task 2.1): 54 further `word` candidates
+    move to `listening`, with a knock-on regrouping effect on signatures
+    that share a candidate across sources (merge's field-priority can pick
+    a different winning `note_type` once one contributing row's own type
+    changes) — see design.md's task 2.1 note for the full count."""
     import json
 
     rows = merged_conn.execute("SELECT fields_json FROM candidate").fetchall()
     note_types = Counter(json.loads(row["fields_json"]).get("note_type") for row in rows)
-    assert note_types["word"] == 6953
-    assert note_types["expression"] == 616  # design.md task 2b.6: 320 moved here from `word`
-    assert note_types["listening"] == 1440  # unaffected by section 2b
+    assert note_types["word"] == 6951
+    assert note_types["expression"] == 573
+    assert note_types["listening"] == 1485
 
 
 def test_merge_is_idempotent_and_does_not_touch_decision(merged_conn):

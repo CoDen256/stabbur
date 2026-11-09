@@ -258,59 +258,99 @@ as D1, so the two cannot drift apart.
   `expression` by D7's mechanism. They are protected either way by D1's
   lowercase guard, so this is a tidiness question, not a correctness one.
 
-## Implementation measurement (tasks 2.3, 4.1-4.6, 6.3, 9.1, 9.5)
+## Real post-run measurement (tasks 2.3, 3.6, 4.1-4.6, 5.5, 6.3, 9.1-9.6)
 
-**Blocker, same one design.md already records for the pos-lemma-inference
-change**: `STABBUR_IMPORT_STOCK_BUNDLE` is unavailable in this checkout, so
-`judge` cannot run end to end here — which blocks every number that needs
-the real known-token set (the fully-known-sentence rule's corpus-wide
-count, task 3.6/9.2/9.3/9.4). Those rules are implemented and unit-tested
-against fabricated known-sets (`tests/test_import_review_queue_filters.py`)
-rather than left unverified; whoever next has the bundle should re-run
-`judge`/`audit.py` to get the real sentence-rule figures.
+First pass at this section was written before `STABBUR_IMPORT_STOCK_BUNDLE`
+was available in this checkout (the same gap design.md records for the
+pos-lemma-inference change) — the operator then supplied the bundle path
+(`~/dev/mjolnir/index.android.bundle.exploded/2113.js`) and `judge` was
+re-run for real. All figures below are the real measurement, replacing the
+earlier partial/blocked notes (repo convention: correct findings in
+place).
 
-Everything *not* gated on the known-set was measured directly against the
-real bundle:
+**Section 2 — core6k sentence re-routing:**
 
 ```
-core6k sentence re-routing (task 2.1/2.3):      54   (design's "23" was
-                                                       illustrative, not
-                                                       exhaustive; 0 of the
-                                                       Country model's
-                                                       entries moved with
-                                                       them — "San Marino"/
-                                                       "New Zealand" have
-                                                       neither sentence
-                                                       punctuation nor a
-                                                       pronoun/interrogative
-                                                       token, see
-                                                       normalize.py)
-proper noun (task 4.1):                        185   (design 186)
-derived-from-proper-noun (task 4.2):            50   (design 50, exact)
-pure numeral (task 4.3):                        25   (design 26)
-                                                ───
-                                                260   (design 262)
+re-typed word -> listening:   54   (design's "23" was illustrative, not
+                                     exhaustive; 0 of the Country model's
+                                     entries moved with them — "San
+                                     Marino"/"New Zealand" have neither
+                                     sentence punctuation nor a pronoun/
+                                     interrogative token, see
+                                     normalize.is_sentence_shaped)
 ```
 
-Month-name/`kristen` leakage (task 9.5, D3's accepted leakage), read
-individually: `januar`, `februar`, `juni`, `september`, `kristen`,
-`kristendom` — six, all recoverable one at a time via `cli.py audit
+`key`'s distinct-signature baseline moved from 7,582 to **7,534**
+accordingly (`key.py`'s `DISTINCT_LEXEME_SIGNATURE_EXPECTED`), since these
+54 are now excluded from the `note_type != 'listening'` count the same way
+every other `listening` row already was.
+
+**Sections 3-4 — the new skip rules, by text shape alone (before D13
+attestation has a chance to already skip the same candidate for a
+different reason):**
+
+```
+fully-known-sentence, unconstrained by decision (task 3.6/5.5):   542
+fully-known-sentence, audio required absent (D2's alternative):     3
+proper noun (task 4.1):                                            185
+derived-from-proper-noun (task 4.2):                                50
+pure numeral (task 4.3):                                            25
+                                                                   ───
+                                                                   260
+```
+
+542 (not design's 571) and 260 (not design's 262) — both close, same
+"measured, not assumed" convention as the rest of this pipeline. The
+audio-condition sensitivity trade-off (542 → 3) reproduces design's
+571 → 2 pattern from independent data, confirming D2's decision.
+
+**Section 9.2 — the actual queue-size effect**, which is smaller than
+either of the above numbers alone, because D13's pre-existing attestation
+rules already run *first*: most proper-noun/nationality/numeral candidates
+(a place name like "Norge", a nationality word, a number) are already
+independently taught by stock and get skipped as `attested-token-strong`/
+`weak` before the new rules are even reached. The new rules' own
+*distinguishing* contribution — candidates that would NOT otherwise have
+been skipped — is much smaller:
+
+```
+queue size, live store (2,589 recorded decisions):   7,022 -> 6,469  (-553)
+  fully-known-sentence:            506   (542 unconstrained minus 36
+                                           decision-precedence exemptions)
+  proper-noun:                      27
+  derived-from-proper-noun:          9
+  numeral:                          11
+
+queue size, fresh run (no decisions):                7,022 -> 6,232  (-790)
+```
+
+Both are below design's ~6,189/-833 estimate, for the reason above — the
+estimate assumed the new rules' raw hit counts (571+262) would all be
+*net new* skips, but a large share were already covered by D13.
+
+**Decision precedence (task 6.3):** re-running `normalize`→`key`→`judge`→
+`merge` against the live store left all 2,589 recorded decisions resolving
+to a candidate under the same `signature_key` — none orphaned.
+
+**Task 9.3 — reading the full newly-skipped list:** one genuine wrong skip
+found: `Gjett!` ("Guess!", an imperative verb) classified `proper-noun`,
+because both its text and gloss are capitalised and it's a single token
+purely due to the trailing `!` — the same shape a real proper noun has.
+1 wrong skip out of 553 (0.2%). Recoverable via `cli.py audit --recover`.
+
+**Task 9.4 — `En god del`-class false skips:** measured at **9**, not
+design's estimated 3: `God dag!`, `God jul!`, `Hun smiler`, `Hvilken
+butikk?`, `Hvor da?`, `Ja, gjerne.`, `Ja, naturligvis!`, `Jeg kan ikke
+tenke meg å …`, `Jeg også` — all `expression`-typed, all read individually.
+None is a genuine idiom in the D139 sense; every one is a greeting or a
+fully compositional mini-sentence mistyped as `expression` rather than
+`listening`/`word` (the type-routing leakage design's Risks section
+anticipated), not a correctness failure of the fully-known-sentence rule
+itself.
+
+**Task 9.5 — month-name/`kristen` leakage:** `januar`, `februar`, `juni`,
+`september`, `kristen`, `kristendom` — plus two further leaks from a
+capitalised-proper-adjective gloss rather than a month or nationality:
+`en fredagstaco` ("Friday tacos"), `ei julegaveåpning` ("Christmas present
+opening"). Eight total, all recoverable individually via `cli.py audit
 --recover <signature_key>` if the operator wants any of them back.
-
-Decision-precedence (task 6.3): the real store carries 2,589 recorded
-decisions. Re-running `normalize`→`key`→`merge` (the parts of the pipeline
-that could run without the stock bundle) left all 2,589 resolving to a
-candidate under the same `signature_key` — `key`'s signature count itself
-dropped from 7,582 to **7,534** (not 7,582 unchanged), because the 54
-re-typed core6k sentences are now excluded from the `note_type != 'listening'`
-count the same way every other `listening` row already was (`key.py`'s
-`DISTINCT_LEXEME_SIGNATURE_EXPECTED` updated accordingly).
-
-The `En god del`-class false-positive check (task 9.4) could only be
-partially measured without the known-set: of the real corpus's `expression`
--typed candidates, **13** are sentence-shaped by `normalize.is_sentence_
-shaped` (`God dag!`, `Jeg også`, `Hun smiler`, `Hvilken butikk?`, `Hvor da?`,
-`Ja, gjerne.`, `Kom, Dina!`, `Ja, naturligvis!`, `Pannekaker, jippi!`, `Hei,
-Cecilie!`, `På utedoveggen?`, `God jul!`, `Jeg kan ikke tenke meg å …`) —
-design's "measured at 3" additionally requires every word of each to be
-known, which needs the stock bundle to confirm.
