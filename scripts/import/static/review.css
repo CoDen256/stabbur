@@ -83,6 +83,7 @@ main {
 .pos { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
 
 .audio-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.audio-row[hidden] { display: none; }
 .play-btn {
   width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center; border: none; cursor: pointer;
@@ -100,6 +101,7 @@ main {
 .inflection-item .key { color: var(--text-faint); margin-right: 4px; }
 
 .evidence-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; color: var(--text-dim); }
+.evidence-row[hidden] { display: none; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -147,6 +149,10 @@ kbd {
   position: fixed; inset: 0; background: rgba(0,0,0,.4);
   display: flex; align-items: center; justify-content: center; z-index: 10;
 }
+/* Author CSS's `display: flex` above otherwise overrides the UA
+   stylesheet's `[hidden] { display: none }`, so the `hidden` attribute
+   this overlay is toggled by (review.js) would have no visual effect. */
+.help-overlay[hidden] { display: none; }
 .help-panel { padding: 24px 28px; max-width: 360px; }
 .help-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 14px 0; align-items: center; }
 .help-panel dt { text-align: right; }
