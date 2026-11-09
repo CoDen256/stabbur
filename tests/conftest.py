@@ -60,6 +60,16 @@ def _ensure_test_database():
 
     Base.metadata.create_all(get_engine())
 
+    # similar-notes-merge: `Base.metadata.create_all` only creates tables,
+    # not the extension/expression index the spelling signal depends on —
+    # those live in the alembic migration, which this fixture bypasses.
+    # Without this, pg_trgm's `similarity()` function doesn't exist on a
+    # freshly created test database (the GIN index itself is an
+    # optimization, not needed for correctness, so it's not recreated here).
+    with get_engine().connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.commit()
+
 
 @pytest.fixture(autouse=True)
 def clean_db():

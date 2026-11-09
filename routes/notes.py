@@ -12,8 +12,32 @@ from flask import jsonify, request
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+import similarity
 from db.models import NOTE_ORIGINS, NOTE_STATUSES, NOTE_TYPES, GrammarRule, Note
 from db.session import session_scope
+
+# similar-notes-merge tasks.md 4.2: fields a merge may copy from a related
+# note into the survivor. Deliberately excludes `status`, `origin`, and
+# `import_ref` — status governs which note survives (design D3) and
+# origin/import_ref are immutable provenance (note-origin-provenance D5),
+# neither of which a field-level take should be able to touch.
+MERGE_TAKE_FIELDS = (
+    "text",
+    "translations",
+    "transcription",
+    "pos",
+    "lemma",
+    "inflections",
+    "context_text",
+    "audio_blob",
+    "audio_sel_ms",
+)
+
+SIMILAR_NOTES_SIGNAL_LABELS = {
+    "spelling": "spelled alike",
+    "morphology": "same word family",
+    "semantic": "related",
+}
 
 AUTHORING_SORTS = {
     "updated_desc": Note.updated_at.desc(),
@@ -84,6 +108,35 @@ def _serialize_authoring(note: Note) -> dict:
     data["origin"] = note.origin
     data["import_ref"] = note.import_ref
     return data
+
+
+def _serialize_similar_match(note: Note, signals: dict) -> dict:
+    """similar-notes-merge tasks.md 4.1: a match with its reasons, status,
+    origin, and which fields it has to offer — never a bare blended score
+    (design D1)."""
+    reasons = []
+    if "spelling" in signals:
+        reasons.append(
+            {"signal": "spelling", "label": SIMILAR_NOTES_SIGNAL_LABELS["spelling"], "score": signals["spelling"]}
+        )
+    if "morphology" in signals:
+        reasons.append({"signal": "morphology", "label": SIMILAR_NOTES_SIGNAL_LABELS["morphology"]})
+    if "semantic" in signals:
+        reasons.append({"signal": "semantic", "label": SIMILAR_NOTES_SIGNAL_LABELS["semantic"]})
+
+    return {
+        "id": note.id,
+        "text": note.text,
+        "type": note.type,
+        "status": note.status,
+        "origin": note.origin,
+        "import_ref": note.import_ref,
+        "reasons": reasons,
+        "has_audio": note.audio_blob is not None,
+        "has_transcription": note.transcription is not None,
+        "has_inflections": bool(note.inflections),
+        "has_context": note.context_text is not None,
+    }
 
 
 def _validate_type_and_status(body: dict, existing_type: str | None, existing_status: str | None) -> str | None:
@@ -427,6 +480,94 @@ def register_notes_routes(app):
 
             db.delete(rule)
             return "", 204
+
+    @app.route("/api/notes/<note_id>/similar", methods=["GET"])
+    def similar_notes(note_id):
+        """similar-notes-merge tasks.md 4.1."""
+        with session_scope() as db:
+            note = db.get(Note, note_id)
+            if note is None:
+                return jsonify({"error": "not found"}), 404
+
+            matches = similarity.find_similar(db, note)
+            matches.sort(key=lambda m: m["note"].text.lower())
+            return jsonify([_serialize_similar_match(m["note"], m["signals"]) for m in matches]), 200
+
+    @app.route("/api/notes/merge", methods=["POST"])
+    def merge_notes():
+        """similar-notes-merge tasks.md 4.2-4.7: one survivor absorbs one or
+        more notes, taking the given per-field selections. Enforced here,
+        not only in the UI (design D3): every absorbed note must be a
+        `draft` — that is the single rule the four status combinations
+        (tasks.md 6.5) reduce to, since the survivor's own status is
+        unconstrained."""
+        body = request.get_json(silent=True)
+        if body is None:
+            return jsonify({"error": "JSON body required"}), 400
+
+        survivor_id = body.get("survivor_id")
+        absorbed_ids = body.get("absorbed_ids") or []
+        take = body.get("take") or {}
+
+        if not survivor_id or not absorbed_ids:
+            return jsonify({"error": "survivor_id and absorbed_ids are required"}), 400
+        if survivor_id in absorbed_ids:
+            return jsonify({"error": "a note cannot absorb itself"}), 400
+        for field in take:
+            if field not in MERGE_TAKE_FIELDS:
+                return jsonify({"error": f"cannot take field {field!r}"}), 400
+
+        with session_scope() as db:
+            survivor = db.get(Note, survivor_id)
+            if survivor is None:
+                return jsonify({"error": "survivor not found"}), 404
+
+            absorbed_notes = []
+            for absorbed_id in absorbed_ids:
+                absorbed = db.get(Note, absorbed_id)
+                if absorbed is None:
+                    return jsonify({"error": f"absorbed note {absorbed_id} not found"}), 404
+                if absorbed.status != "draft":
+                    return (
+                        jsonify(
+                            {
+                                "error": f"absorbed note {absorbed_id} has status={absorbed.status!r}; "
+                                "only draft notes can be absorbed by a merge"
+                            }
+                        ),
+                        400,
+                    )
+                absorbed_notes.append(absorbed)
+            absorbed_by_id = {n.id: n for n in absorbed_notes}
+
+            for field, source_id in take.items():
+                if source_id == survivor.id:
+                    source = survivor
+                else:
+                    source = absorbed_by_id.get(source_id)
+                if source is None:
+                    return jsonify({"error": f"take source {source_id} is not part of this merge"}), 400
+                setattr(survivor, field, getattr(source, field))
+
+            # Hard-deleted, never tombstoned — every absorbed note was just
+            # asserted to be a draft above, and a draft has never been
+            # eligible for the read API to have pulled it (design D3).
+            for absorbed in absorbed_notes:
+                db.delete(absorbed)
+
+            # D82: bumped explicitly so a merge that takes zero fields (pure
+            # duplicate absorption) still counts as a change the builder's
+            # `since` pull sees — onupdate=func.now() only fires when a
+            # column is actually assigned.
+            survivor.updated_at = datetime.datetime.now(datetime.timezone.utc)
+
+            try:
+                db.flush()
+            except IntegrityError as exc:
+                db.rollback()
+                return jsonify({"error": _integrity_error_message(exc)}), 400
+
+            return jsonify(_serialize_authoring(survivor)), 200
 
 
 def _serialize_grammar_rule(rule: GrammarRule, usage_count: int) -> dict:

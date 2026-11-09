@@ -437,6 +437,7 @@ async function renderNoteDetail(id) {
   updateNoAudioWarning();
   updateNoteJsonView();
   renderAudioSection(note);
+  loadSimilarNotes('e', note.id);
 }
 
 function currentInflectionShapeField() {
@@ -731,6 +732,213 @@ document.getElementById('previewTrimBtn').addEventListener('click', () => {
   };
   audioEl.addEventListener('timeupdate', onTimeUpdate);
 });
+
+// ------------------------------------------------------- similar notes --
+// similar-notes-merge: shared by the note editor ('e') and the triage
+// belt ('t'), matching every other paired element-id convention in this
+// file. State per prefix: which notes are checked for absorption, and
+// which field is staged to be taken from which note — both are only
+// applied together, on commit (design D4: take is a field-level staging
+// action, merge is what actually deletes anything).
+
+const similarNotesState = {
+  e: { matches: [], absorb: new Set(), take: {} },
+  t: { matches: [], absorb: new Set(), take: {} },
+};
+
+const SIMILAR_FIELD_LABELS = {
+  audio_blob: 'audio',
+  transcription: 'IPA',
+  inflections: 'inflections',
+  context_text: 'context',
+  translations: 'translations',
+};
+
+async function loadSimilarNotes(prefix, noteId) {
+  const wrap = document.getElementById(`${prefix}_similar_wrap`);
+  if (!wrap) return;
+  similarNotesState[prefix] = { matches: [], absorb: new Set(), take: {} };
+  if (!noteId) {
+    wrap.innerHTML = '<p class="inline-note">Save the note first to see related notes.</p>';
+    return;
+  }
+  wrap.innerHTML = '<p class="inline-note">Looking…</p>';
+  const { status, body } = await api(`/api/notes/${noteId}/similar`);
+  if (status !== 200) {
+    wrap.innerHTML = '<p class="inline-note">Could not load related notes.</p>';
+    return;
+  }
+  similarNotesState[prefix].matches = body;
+  renderSimilarNotes(prefix, noteId);
+}
+
+function similarNoteRowHtml(m) {
+  const reasonsHtml = m.reasons
+    .map((r) => `<span class="pill${r.signal === 'spelling' ? ' pill-spelling' : ''}">${escapeHtml(r.label)}</span>`)
+    .join(' ');
+
+  const takeButtons = [];
+  if (m.has_audio) takeButtons.push(['audio_blob', 'Take audio']);
+  if (m.has_transcription) takeButtons.push(['transcription', 'Take IPA']);
+  if (m.has_inflections) takeButtons.push(['inflections', 'Take inflections']);
+  if (m.has_context) takeButtons.push(['context_text', 'Take context']);
+  takeButtons.push(['translations', 'Take translations']);
+
+  const canAbsorb = m.status === 'draft';
+  const takeButtonsHtml = takeButtons
+    .map(
+      ([field, label]) =>
+        `<button type="button" class="btn-ghost similar-take-btn" data-take-field="${field}" data-take-note="${m.id}" ${canAbsorb ? '' : 'disabled title="only a draft can be absorbed"'}>${label}</button>`
+    )
+    .join(' ');
+
+  return `
+    <div class="similar-note-row" data-note-id="${m.id}">
+      <label class="similar-note-head">
+        <input type="checkbox" class="similar-select-cb" data-note-id="${m.id}" ${canAbsorb ? '' : 'disabled'}>
+        <span class="similar-note-text">${escapeHtml(m.text)}</span>
+        ${statusPill(m.status)}
+        <span class="pill">${originLabel(m)}</span>
+      </label>
+      <div class="similar-note-reasons">${reasonsHtml}</div>
+      <div class="similar-note-actions">${takeButtonsHtml}</div>
+      ${canAbsorb ? '' : '<div class="inline-note">ready — cannot be absorbed by a merge; its fields can’t be taken either, since taking one commits a merge</div>'}
+    </div>`;
+}
+
+function renderSimilarNotes(prefix, noteId) {
+  const wrap = document.getElementById(`${prefix}_similar_wrap`);
+  const { matches } = similarNotesState[prefix];
+
+  if (!matches.length) {
+    wrap.innerHTML = '<p class="inline-note">Nothing related found.</p>';
+    return;
+  }
+
+  const direct = matches.filter((m) => m.reasons.some((r) => r.signal !== 'semantic'));
+  const semanticOnly = matches.filter((m) => !direct.includes(m));
+
+  let html = direct.length
+    ? `<div class="similar-group">${direct.map(similarNoteRowHtml).join('')}</div>`
+    : '<p class="inline-note">No spelling or word-family matches.</p>';
+
+  if (semanticOnly.length) {
+    html += `
+      <details class="similar-semantic-group">
+        <summary>${semanticOnly.length} related by translation — probably not duplicates</summary>
+        <div class="similar-group">${semanticOnly.map(similarNoteRowHtml).join('')}</div>
+      </details>`;
+  }
+
+  html += `
+    <div class="similar-note-merge-bar" style="display:none;">
+      <span class="similar-merge-summary"></span>
+      <button type="button" class="btn-danger similar-merge-btn">Merge selected into this note</button>
+    </div>`;
+
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.similar-select-cb').forEach((cb) => {
+    cb.addEventListener('change', () => onSimilarCheckboxChange(prefix, noteId, cb));
+  });
+  wrap.querySelectorAll('.similar-take-btn').forEach((btn) => {
+    btn.addEventListener('click', () => onSimilarTakeClick(prefix, noteId, btn));
+  });
+  wrap.querySelector('.similar-merge-btn').addEventListener('click', () => commitSimilarMerge(prefix, noteId));
+
+  syncSimilarNoteControls(prefix);
+}
+
+function onSimilarCheckboxChange(prefix, noteId, cb) {
+  const state = similarNotesState[prefix];
+  const matchId = cb.dataset.noteId;
+  if (cb.checked) state.absorb.add(matchId);
+  else {
+    state.absorb.delete(matchId);
+    // Unchecking a note withdraws every field staged to come from it too
+    // — a take source has to be part of the merge (routes/notes.py).
+    for (const [field, sourceId] of Object.entries(state.take)) {
+      if (sourceId === matchId) delete state.take[field];
+    }
+  }
+  syncSimilarNoteControls(prefix);
+  updateSimilarMergeBar(prefix);
+}
+
+function onSimilarTakeClick(prefix, noteId, btn) {
+  const state = similarNotesState[prefix];
+  const field = btn.dataset.takeField;
+  const matchId = btn.dataset.takeNote;
+  if (state.take[field] === matchId) delete state.take[field];
+  else {
+    state.take[field] = matchId;
+    state.absorb.add(matchId);
+  }
+  syncSimilarNoteControls(prefix);
+  updateSimilarMergeBar(prefix);
+}
+
+function syncSimilarNoteControls(prefix) {
+  const wrap = document.getElementById(`${prefix}_similar_wrap`);
+  const state = similarNotesState[prefix];
+  wrap.querySelectorAll('.similar-select-cb').forEach((cb) => {
+    cb.checked = state.absorb.has(cb.dataset.noteId);
+  });
+  wrap.querySelectorAll('.similar-take-btn').forEach((btn) => {
+    btn.classList.toggle('active', state.take[btn.dataset.takeField] === btn.dataset.takeNote);
+  });
+}
+
+function updateSimilarMergeBar(prefix) {
+  const wrap = document.getElementById(`${prefix}_similar_wrap`);
+  const state = similarNotesState[prefix];
+  const bar = wrap.querySelector('.similar-note-merge-bar');
+  const summary = wrap.querySelector('.similar-merge-summary');
+  if (!state.absorb.size) {
+    bar.style.display = 'none';
+    return;
+  }
+  const names = Array.from(state.absorb).map((id) => {
+    const m = state.matches.find((x) => x.id === id);
+    return m ? m.text : id;
+  });
+  const takeBits = Object.entries(state.take).map(([field, sourceId]) => {
+    const m = state.matches.find((x) => x.id === sourceId);
+    return `${SIMILAR_FIELD_LABELS[field] || field} from "${m ? m.text : sourceId}"`;
+  });
+  summary.textContent = `Absorb: ${names.join(', ')}` + (takeBits.length ? ` — taking ${takeBits.join(', ')}` : '');
+  bar.style.display = 'flex';
+}
+
+async function commitSimilarMerge(prefix, noteId) {
+  const state = similarNotesState[prefix];
+  const absorbedIds = Array.from(state.absorb);
+  if (!absorbedIds.length) return;
+  const names = absorbedIds.map((id) => {
+    const m = state.matches.find((x) => x.id === id);
+    return m ? m.text : id;
+  });
+  if (!confirm(`Absorb ${names.join(', ')} into this note? ${absorbedIds.length === 1 ? 'That note' : 'Those notes'} will be permanently deleted.`)) {
+    return;
+  }
+
+  const { status, body } = await api('/api/notes/merge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ survivor_id: noteId, absorbed_ids: absorbedIds, take: state.take }),
+  });
+  if (status !== 200) {
+    alert(`Merge failed: ${(body && body.error) || status}`);
+    return;
+  }
+
+  if (prefix === 'e') {
+    await renderNoteDetail(noteId);
+  } else {
+    triageQueue[triageIndex] = body;
+    await showTriageNote();
+  }
+}
 
 // --------------------------------------------------------- grammar list --
 
@@ -2490,6 +2698,7 @@ async function showTriageNote() {
   resetSuggestQueries('t'); // closes and empties every suggest panel (tasks 3.5/5.7/7.10)
   clearTriageProvenanceBadges();
   renderTriageAudioSection(note);
+  loadSimilarNotes('t', note.id);
 
   // Lemma prefills unconditionally, before any provider is asked — inflections
   // (and the inflections prefill walk below) query on lemma, so this has to
