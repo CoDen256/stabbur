@@ -156,6 +156,54 @@ def unsignaled_candidate_is_due(conn: sqlite3.Connection) -> bool:
     return target_unsignaled_by_now > unsignaled_progress
 
 
+# Operator decision (2026-11-09): within the unsignaled pool, a
+# single-token `word` candidate whose part of speech is one of these three
+# gets the same "short/common surfaces first" treatment freq6k's real
+# `frequency_index` already gives everything in the signaled pool —
+# explicitly NOT `listening` (handled entirely by the due-check above) and
+# NOT multiword candidates (a phrase has no single "length" that means
+# "more basic"; the CSV notation parser's rare multiword `word` entries and
+# every `expression` are left untouched).
+_SINGLE_WORD_POS = frozenset({"substantiv", "adjektiv", "verb"})
+
+
+def _is_orderable_single_word(row: sqlite3.Row) -> bool:
+    """`lemma`, not `text` — task 4.1's `derive_lemma` already strips the
+    leading `en`/`et`/`ei`/`å` that a noun's/verb's `text` conventionally
+    carries (`"en hovedregel"` -> lemma `"hovedregel"`), so checking `text`
+    for whitespace would wrongly treat nearly every noun as "multiword."
+    `lemma` is the single lexical item itself; `text` is how it's written,
+    article included."""
+    if _note_type(row) != "word":
+        return False
+    fields = json.loads(row["fields_json"])
+    lemma = (fields.get("lemma") or "").strip()
+    pos = fields.get("pos")
+    return bool(lemma) and " " not in lemma and pos in _SINGLE_WORD_POS
+
+
+def _word_length(row: sqlite3.Row) -> int:
+    fields = json.loads(row["fields_json"])
+    return len(fields.get("lemma") or "")
+
+
+def _shortest_single_words_first(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Moves every orderable single-word candidate (`_is_orderable_single_
+    word`) to the front, shortest text first, longest last. Python's sort
+    is stable, so every candidate NOT in that group — multiword `word`
+    entries, `word` entries with no resolved `pos` (section 2's
+    unresolved candidates), every `expression`, every `listening` — keeps
+    its existing relative order exactly, just shifted after the ordered
+    group; nothing outside the targeted subset is touched."""
+
+    def sort_key(row: sqlite3.Row) -> tuple[int, int]:
+        if _is_orderable_single_word(row):
+            return (0, _word_length(row))
+        return (1, 0)
+
+    return sorted(rows, key=sort_key)
+
+
 def _round_robin_by_note_type(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
     """Proportionally interleaves `rows` by `note_type` — measured need:
     of the no-signal pool, `listening` outnumbers `word`/`expression`
@@ -204,7 +252,9 @@ def pending_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     on."""
     decided = decided_signature_keys(conn)
     undecided = [row for row in queue(conn) if row["signature_key"] not in decided]
-    unsignaled = _round_robin_by_note_type([row for row in undecided if not _has_order_signal(row)])
+    unsignaled = [row for row in undecided if not _has_order_signal(row)]
+    unsignaled = _shortest_single_words_first(unsignaled)
+    unsignaled = _round_robin_by_note_type(unsignaled)
     signaled = [row for row in undecided if _has_order_signal(row)]
     if not unsignaled or not signaled:
         return undecided

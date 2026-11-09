@@ -300,6 +300,105 @@ def test_round_robin_mixes_note_types_rather_than_exhausting_one_first():
     assert "word" in first_five_types
 
 
+# ---------------------------------------------------------------------------
+# shortest-single-words-first (operator decision, 2026-11-09): within the
+# unsignaled pool, single-token substantiv/adjektiv/verb candidates get the
+# same "short/common surfaces first" treatment freq6k's real
+# frequency_index already gives the signaled pool — explicitly not
+# listening (handled by the due-check) and not multiword candidates.
+# ---------------------------------------------------------------------------
+
+
+def _word_row(sig, text, pos=None, note_type="word", lemma=None):
+    fields = {"text": text, "lemma": lemma if lemma is not None else text, "pos": pos, "note_type": note_type}
+    return {"signature_key": sig, "fields_json": json.dumps(fields)}
+
+
+def test_shortest_single_words_sort_to_the_front():
+    rows = [
+        _word_row("long", "tilstedeværelse", pos="substantiv"),
+        _word_row("short", "hus", pos="substantiv"),
+        _word_row("medium", "kjemisk", pos="adjektiv"),
+    ]
+    result = import_review._shortest_single_words_first(rows)
+    assert [r["signature_key"] for r in result] == ["short", "medium", "long"]
+
+
+def test_sorts_by_lemma_length_not_text_length():
+    """Regression: `text` conventionally carries the article/infinitive
+    marker a noun's/verb's `lemma` has already had stripped (`"en
+    hovedregel"` -> lemma `"hovedregel"`) — sorting/single-token-checking
+    on `text` would treat nearly every noun as multiword and sort on the
+    wrong (longer, article-included) string. Found by direct observation
+    against the real queue: candidates were not coming out shortest-first
+    at all until this was caught."""
+    rows = [
+        _word_row("article_noun", "en hus", lemma="hus", pos="substantiv"),  # lemma len 3
+        _word_row("bare_noun", "katt", lemma="katt", pos="substantiv"),  # lemma len 4
+    ]
+    result = import_review._shortest_single_words_first(rows)
+    assert [r["signature_key"] for r in result] == ["article_noun", "bare_noun"]
+
+
+def test_multiword_word_candidates_are_not_reordered_by_length():
+    """A multiword `word` entry (the CSV notation parser's rare case) has
+    no meaningful "length" signal and must not be pulled into the
+    shortest-first group, however short its text happens to be. Checked
+    on `lemma` (a verb's own infinitive marker is already stripped there),
+    not on the raw, possibly article/marker-carrying `text`."""
+    rows = [
+        _word_row("multiword", "å ha det", lemma="ha det", pos="verb"),
+        _word_row("single", "å spise", lemma="spise", pos="verb"),
+    ]
+    result = import_review._shortest_single_words_first(rows)
+    # The multiword candidate keeps its original relative position (after
+    # "single", since it was already after it and isn't moved forward).
+    assert result[0]["signature_key"] == "single"
+    assert result[1]["signature_key"] == "multiword"
+
+
+def test_unresolved_pos_word_candidates_are_not_reordered_by_length():
+    rows = [
+        _word_row("unresolved", "a", pos=None),
+        _word_row("resolved", "bb", pos="substantiv"),
+    ]
+    result = import_review._shortest_single_words_first(rows)
+    # "resolved" is orderable (has a pos) and moves to the front even
+    # though it's longer; "unresolved" has no pos, so it is NOT treated
+    # as orderable despite being shorter, and stays after it.
+    assert result[0]["signature_key"] == "resolved"
+    assert result[1]["signature_key"] == "unresolved"
+
+
+def test_expression_and_listening_candidates_are_never_reordered_by_length():
+    rows = [
+        _word_row("expr", "en passkontroll", note_type="expression"),
+        _word_row("listen", "Jeg er norsk", note_type="listening"),
+        _word_row("word", "tilstedeværelse", pos="substantiv", note_type="word"),
+    ]
+    result = import_review._shortest_single_words_first(rows)
+    # The one orderable single word moves to the front; expression and
+    # listening keep their original relative order after it, untouched.
+    assert [r["signature_key"] for r in result] == ["word", "expr", "listen"]
+
+
+def test_shortest_single_words_first_composes_with_round_robin():
+    """Integration: the word bucket round-robin draws from is itself
+    shortest-first, so as review progresses through the unsignaled pool's
+    word slots, short words consistently precede long ones."""
+    rows = [
+        _word_row("long1", "tilstedeværelse", pos="substantiv"),  # len 15
+        _word_row("long2", "antropologisk", pos="adjektiv"),  # len 13
+        _word_row("short1", "hus", pos="substantiv"),  # len 3
+        _word_row("short2", "bil", pos="substantiv"),  # len 3
+        _word_row("listen1", "Jeg er norsk", note_type="listening"),
+        _word_row("listen2", "Er du norsk?", note_type="listening"),
+    ]
+    result = import_review._round_robin_by_note_type(import_review._shortest_single_words_first(rows))
+    word_order = [r["signature_key"] for r in result if json.loads(r["fields_json"])["note_type"] == "word"]
+    assert word_order == ["short1", "short2", "long2", "long1"]
+
+
 def test_pending_queue_never_surfaces_a_decided_candidate(conn, monkeypatch, tmp_path):
     """An unsignaled candidate can never be shown earlier than where
     review currently stands — `pending_queue` filters decided candidates
