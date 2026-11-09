@@ -146,6 +146,115 @@ def test_rerunning_judge_and_merge_preserves_decisions(conn):
 
 
 # ---------------------------------------------------------------------------
+# interleave_listening (operator decision, 2026-11-09): listening
+# candidates almost never carry a natural order signal and so cluster
+# entirely at the tail of order_sort_key's own ordering — evenly
+# redistributed through the rest of pending_queue's result instead.
+# ---------------------------------------------------------------------------
+
+
+def _rows(spec):
+    return [{"signature_key": sig, "fields_json": json.dumps({"note_type": nt})} for sig, nt in spec]
+
+
+def test_interleave_listening_spreads_evenly_through_the_rest():
+    rows = _rows(
+        [("w1", "word"), ("w2", "word"), ("w3", "word"), ("w4", "word"),
+         ("l1", "listening"), ("l2", "listening")]
+    )
+    result = import_review.interleave_listening(rows)
+    note_types = [json.loads(r["fields_json"])["note_type"] for r in result]
+    assert note_types.count("listening") == 2
+    assert note_types.count("word") == 4
+    # Neither listening candidate is first (there's vocabulary ahead of it)
+    # nor are both dumped at the very end (the pre-existing bug).
+    listening_positions = [i for i, nt in enumerate(note_types) if nt == "listening"]
+    assert listening_positions[-1] != len(note_types) - 1 or listening_positions[0] != len(note_types) - 2
+
+
+def test_interleave_listening_never_reorders_within_each_group():
+    """The relative order of the non-listening candidates (whatever
+    tier-based order_sort_key gave them) and of the listening candidates
+    among themselves must be preserved — only their interleaving changes."""
+    rows = _rows(
+        [("w1", "word"), ("w2", "word"), ("l1", "listening"), ("w3", "word"),
+         ("l2", "listening"), ("w4", "word"), ("w5", "word"), ("w6", "word")]
+    )
+    result = import_review.interleave_listening(rows)
+    sigs = [r["signature_key"] for r in result]
+    words_in_result = [s for s in sigs if s.startswith("w")]
+    listening_in_result = [s for s in sigs if s.startswith("l")]
+    assert words_in_result == ["w1", "w2", "w3", "w4", "w5", "w6"]
+    assert listening_in_result == ["l1", "l2"]
+
+
+def test_interleave_listening_noop_when_no_listening_candidates():
+    rows = _rows([("w1", "word"), ("w2", "word")])
+    assert import_review.interleave_listening(rows) == rows
+
+
+def test_interleave_listening_noop_when_only_listening_candidates():
+    rows = _rows([("l1", "listening"), ("l2", "listening")])
+    assert import_review.interleave_listening(rows) == rows
+
+
+def test_interleave_listening_deterministic_across_repeated_calls():
+    """Not randomised — a stable stride-based interleave, so reopening the
+    review UI mid-session doesn't reshuffle what's already been shown."""
+    rows = _rows(
+        [(f"w{i}", "word") for i in range(10)] + [(f"l{i}", "listening") for i in range(3)]
+    )
+    first = [r["signature_key"] for r in import_review.interleave_listening(rows)]
+    second = [r["signature_key"] for r in import_review.interleave_listening(rows)]
+    assert first == second
+
+
+def test_pending_queue_interleaves_listening(conn):
+    """Integration: `pending_queue` itself applies the interleave, over
+    real `candidate` rows ordered by `order_sort_key` first."""
+    for i in range(6):
+        _insert_candidate(
+            conn, f"w{i}", fields={"text": f"w{i}", "note_type": "word"},
+            order_key={"frequency_index": i, "cefr": None, "chapter": None},
+        )
+    for i in range(2):
+        _insert_candidate(
+            conn, f"l{i}", fields={"text": f"l{i}", "note_type": "listening"},
+            order_key={"frequency_index": None, "cefr": None, "chapter": None},
+        )
+    pending = import_review.pending_queue(conn)
+    note_types = [json.loads(row["fields_json"])["note_type"] for row in pending]
+    assert note_types.count("listening") == 2
+    assert note_types.count("word") == 6
+    # Not both listening candidates stuck at the very end.
+    assert note_types[-1] != "listening" or note_types[-2] != "listening"
+
+
+def test_pending_queue_interleave_only_spans_undecided_candidates(conn):
+    """A listening candidate can never be interleaved earlier than where
+    review currently stands — because `pending_queue` filters decided
+    candidates *before* interleaving, a decided word never "reappears"
+    to make room for a listening candidate shown earlier."""
+    for i in range(4):
+        _insert_candidate(
+            conn, f"w{i}", fields={"text": f"w{i}", "note_type": "word"},
+            order_key={"frequency_index": i, "cefr": None, "chapter": None},
+        )
+    _insert_candidate(
+        conn, "l0", fields={"text": "l0", "note_type": "listening"},
+        order_key={"frequency_index": None, "cefr": None, "chapter": None},
+    )
+    import_review.record_decision(conn, "w0", "accept")
+    import_review.record_decision(conn, "w1", "accept")
+
+    pending = import_review.pending_queue(conn)
+    sigs = [row["signature_key"] for row in pending]
+    assert "w0" not in sigs
+    assert "w1" not in sigs
+    assert set(sigs) == {"w2", "w3", "l0"}
+
+
+# ---------------------------------------------------------------------------
 # format_candidate (task 6.2)
 # ---------------------------------------------------------------------------
 

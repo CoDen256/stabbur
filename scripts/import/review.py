@@ -44,11 +44,55 @@ def decided_signature_keys(conn: sqlite3.Connection) -> set[str]:
     return {row["signature_key"] for row in conn.execute("SELECT signature_key FROM decision").fetchall()}
 
 
+def interleave_listening(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Operator decision (2026-11-09): `listening` candidates almost never
+    carry a natural ordering signal — `frequency_index`/`core6k_rank` only
+    ever attach to word-sourced rows — so under plain `order_sort_key`
+    they fall entirely into its own "no signal sorts last" tier and
+    cluster at the very tail. Measured against the live store: the
+    no-signal tier doesn't start until position 5,214 of 6,973, and 1,407
+    of 1,434 `listening` candidates live in it — which is why 2,500
+    reviews in, the operator had not seen a single one.
+
+    Evenly redistributes `listening` candidates through the rest of
+    `rows` instead — a stride-based interleave (`len(rest) / len
+    (listening)`), deterministic rather than randomised, so repeatedly
+    opening the review UI mid-session doesn't reshuffle what's already
+    been shown. Deliberately applied here, to `pending_queue`'s own
+    already-decided-filtered list, and not to the underlying
+    `order_key_json` persisted by `merge` or to `push`'s ordering (design
+    D6): this only changes what the operator is shown next, never the
+    permanent push order a card's `Cards[]` introduction order depends
+    on. Because `rows` here never includes anything already decided, a
+    `listening` candidate can only ever land among what's still ahead —
+    it can never be interleaved earlier than where review currently
+    stands."""
+    listening = [row for row in rows if json.loads(row["fields_json"]).get("note_type") == "listening"]
+    rest = [row for row in rows if json.loads(row["fields_json"]).get("note_type") != "listening"]
+    if not listening or not rest:
+        return rows
+
+    stride = len(rest) / len(listening)
+    result: list[sqlite3.Row] = []
+    listening_index = 0
+    next_threshold = stride
+    for position, row in enumerate(rest):
+        result.append(row)
+        if listening_index < len(listening) and (position + 1) >= next_threshold:
+            result.append(listening[listening_index])
+            listening_index += 1
+            next_threshold += stride
+    result.extend(listening[listening_index:])
+    return result
+
+
 def pending_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """The queue minus whatever already has a decision — reopening review
-    resumes here (task 6.4)."""
+    resumes here (task 6.4) — with `listening` candidates evenly
+    interleaved through the remainder (see `interleave_listening`)."""
     decided = decided_signature_keys(conn)
-    return [row for row in queue(conn) if row["signature_key"] not in decided]
+    undecided = [row for row in queue(conn) if row["signature_key"] not in decided]
+    return interleave_listening(undecided)
 
 
 def progress(conn: sqlite3.Connection) -> tuple[int, int]:
