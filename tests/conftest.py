@@ -36,7 +36,7 @@ import pytest  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
 
-from db.models import Base, GrammarRule, Note, Settings  # noqa: E402
+from db.models import Base, Capture, GrammarRule, Note, Settings  # noqa: E402
 from db.session import get_engine, get_sessionmaker  # noqa: E402
 
 
@@ -75,11 +75,27 @@ def _ensure_test_database():
 def clean_db():
     Session = get_sessionmaker()
     with Session() as db:
+        # Note first — captures.id has ON DELETE RESTRICT, so a note still
+        # referencing a capture must go before the capture it references.
         db.query(Note).delete()
+        db.query(Capture).delete()
         db.query(GrammarRule).delete()
         db.query(Settings).delete()
         db.commit()
     yield
+
+
+def make_capture(capture_id="cap-1", **overrides):
+    """Test helper: insert a minimal capture row directly, for tests that
+    only need a valid `capture_id` to reference — not exercising the
+    ingestion endpoint itself."""
+    defaults = {"id": capture_id, "selected_text": "x", "source": {"web": "https://example.com"}}
+    defaults.update(overrides)
+    Session = get_sessionmaker()
+    with Session() as db:
+        db.add(Capture(**defaults))
+        db.commit()
+    return capture_id
 
 
 @pytest.fixture

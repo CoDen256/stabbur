@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from db.models import GrammarRule, Note
 from db.session import get_sessionmaker
+from tests.conftest import make_capture
 
 INFLECTION_SHAPES = {
     "substantiv": {"article": "et", "sg_indef": "hus", "sg_def": "huset", "pl_indef": "hus", "pl_def": "husene"},
@@ -125,6 +126,7 @@ def test_manual_origin_with_no_provenance_is_accepted():
 
 
 def test_capture_origin_with_capture_id_is_accepted():
+    make_capture("cap-1")
     Session = get_sessionmaker()
     with Session() as db:
         note = Note(type="word", source_lang="no", text="hus", origin="capture", capture_id="cap-1")

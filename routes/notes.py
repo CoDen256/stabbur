@@ -600,4 +600,6 @@ def _integrity_error_message(exc: IntegrityError) -> str:
         return "origin=import requires import_ref"
     if "ck_notes_manual_origin_has_no_provenance" in str(exc.orig):
         return "origin=manual requires both capture_id and import_ref to be null"
+    if "ck_captures_source_shape" in str(exc.orig):
+        return "source must contain a recognised shape (web or youtube)"
     return "invalid note data"

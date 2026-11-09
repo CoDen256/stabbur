@@ -55,6 +55,45 @@ class GrammarRule(Base):
     html: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class Capture(Base):
+    """`captures-ingestion` spec: raw lexical intent plus its provenance —
+    the immutable record of what was actually selected and where, as
+    distinct from the note authored from it. **No `status` column**
+    (design.md D2, supersedes `tun/docs/03-data-model.md`'s
+    `inbox|promoted|discarded`): a capture auto-promotes to a draft note
+    the instant it is ingested, so the promoted note's own `draft`/`ready`
+    status is the only lifecycle — see `tun/docs/07-decisions.md`."""
+
+    __tablename__ = "captures"
+    __table_args__ = (
+        # Shape-level only (D8) — per-shape required keys (`youtube`'s
+        # video id, `web`'s url) are validated in the route, since a JSONB
+        # CHECK can't express them readably.
+        CheckConstraint("source ? 'web' OR source ? 'youtube'", name="ck_captures_source_shape"),
+    )
+
+    # Client-supplied, no default (D4) — the extension's offline-outbox
+    # retries a request whose response it never saw; a server-generated id
+    # would mint a duplicate on every such retry.
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    selected_text: Mapped[str] = mapped_column(Text, nullable=False)
+    context_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # As captured, provider-native language codes and all (design.md D3) —
+    # never rewritten when the promoted note's own translations are edited.
+    translations: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # {youtube: videoId, cueStartMs, cueEndMs, url, title} | {web: url, title}
+    # (tun/docs/03-data-model.md).
+    source: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # A reference (sha256) to a blob already stored via POST /blobs, never
+    # bytes (D5) — the WIDE padded clip; audio_sel_ms is the selection
+    # range inside it (D6). Both nullable: a text capture has neither.
+    audio_blob: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_sel_ms: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
+
 class Note(Base):
     __tablename__ = "notes"
     __table_args__ = (
@@ -88,9 +127,12 @@ class Note(Base):
     # Set only when a `ready` note is deleted (tombstone); null otherwise.
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Provenance; null for hand-authored entries. No FK — P7's `captures`
-    # table does not exist yet in this change.
-    capture_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Provenance; null for hand-authored entries. `ON DELETE RESTRICT`
+    # (design.md D7): a capture is not deleted out from under a live note —
+    # captures are not deleted in normal operation; a note is.
+    capture_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("captures.id", ondelete="RESTRICT"), nullable=True
+    )
 
     # Positively asserts where a note came from — see NOTE_ORIGINS. Never
     # null; "capture"/"import" is backed by capture_id/import_ref via the

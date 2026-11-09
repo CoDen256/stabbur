@@ -36,5 +36,9 @@ Do not re-derive settled decisions.
 
 ## Status
 
-Not implemented. Relevant docs: `tun/docs/03-data-model.md`, `02-services.md`,
+Notes, grammar rules, settings, and blob storage are implemented. `captures`
+exists as its own table (`captures-provenance-and-promote`): `POST
+/api/captures` ingests a capture and atomically promotes it to a draft note,
+making `origin=capture` a reachable, referentially-backed state for the first
+time. Relevant docs: `tun/docs/03-data-model.md`, `02-services.md`,
 `06-smia.md`, and **D74** for why `item` became `note`.

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import io
 
-from tests.conftest import AUTH
+from tests.conftest import AUTH, make_capture
 
 
 def test_create_requires_type_source_lang_text(client):
@@ -78,6 +78,7 @@ def test_origin_derives_to_manual_when_omitted_and_no_capture(client):
 
 
 def test_origin_derives_to_capture_when_capture_id_present(client):
+    make_capture("cap-1")
     resp = client.post(
         "/api/notes",
         json={"type": "word", "source_lang": "no", "text": "hus", "capture_id": "cap-1"},

@@ -4,7 +4,7 @@ together, per design.md D-S1)."""
 
 from __future__ import annotations
 
-from tests.conftest import AUTH
+from tests.conftest import AUTH, make_capture
 
 
 def _create(client, **overrides):
@@ -80,6 +80,7 @@ def test_invalid_status_type_sort_are_rejected(client):
 
 
 def test_filters_by_origin_alone(client):
+    make_capture("cap-1")
     _create(client, text="hus")  # manual
     _create(client, text="bil", capture_id="cap-1")  # capture
     _create(
@@ -107,6 +108,7 @@ def test_invalid_origin_filter_is_rejected(client):
 
 
 def test_no_origin_filter_returns_every_origin(client):
+    make_capture("cap-1")
     _create(client, text="hus")
     _create(client, text="bil", capture_id="cap-1")
 
